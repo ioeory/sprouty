@@ -1,0 +1,217 @@
+@import "tailwindcss";
+
+/* Non-color design tokens live in @theme so they flow into Tailwind utilities. */
+@theme {
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.05), 0 1px 2px -1px rgb(0 0 0 / 0.04);
+  --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.06), 0 2px 4px -2px rgb(0 0 0 / 0.04);
+  --shadow-lg: 0 12px 24px -4px rgb(0 0 0 / 0.08), 0 4px 8px -2px rgb(0 0 0 / 0.04);
+}
+
+/* ------------------------------------------------------------------ */
+/* Light theme (default)                                              */
+/* ------------------------------------------------------------------ */
+:root {
+  color-scheme: light;
+
+  --color-bg: #fafafa;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f4f4f5;
+  --color-surface-hover: #f9fafb;
+  --color-border: #e4e4e7;
+  --color-border-strong: #d4d4d8;
+
+  --color-text: #18181b;
+  --color-text-muted: #52525b;
+  --color-text-subtle: #a1a1aa;
+
+  --color-brand: #4f46e5;
+  --color-brand-hover: #4338ca;
+  --color-brand-soft: #eef2ff;
+  --color-brand-softer: #f5f3ff;
+
+  --color-success: #16a34a;
+  --color-success-soft: #f0fdf4;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fef2f2;
+  --color-warning: #d97706;
+  --color-warning-soft: #fffbeb;
+  --color-info: #0284c7;
+  --color-info-soft: #f0f9ff;
+
+  --chart-grid: #e4e4e7;
+}
+
+/* Explicit dark theme */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-bg: #09090b;
+  --color-surface: #141418;
+  --color-surface-muted: #1b1b20;
+  --color-surface-hover: #212128;
+  --color-border: #27272a;
+  --color-border-strong: #3f3f46;
+
+  --color-text: #fafafa;
+  --color-text-muted: #a1a1aa;
+  --color-text-subtle: #71717a;
+
+  --color-brand: #818cf8;
+  --color-brand-hover: #a5b4fc;
+  --color-brand-soft: #1e1b4b;
+  --color-brand-softer: #1b1832;
+
+  --color-success: #22c55e;
+  --color-success-soft: #052e16;
+  --color-danger: #f87171;
+  --color-danger-soft: #3b0e10;
+  --color-warning: #f59e0b;
+  --color-warning-soft: #3a2206;
+  --color-info: #38bdf8;
+  --color-info-soft: #062c3d;
+
+  --chart-grid: #27272a;
+}
+
+/* Auto (no explicit data-theme attribute) -> follow system */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+
+    --color-bg: #09090b;
+    --color-surface: #141418;
+    --color-surface-muted: #1b1b20;
+    --color-surface-hover: #212128;
+    --color-border: #27272a;
+    --color-border-strong: #3f3f46;
+
+    --color-text: #fafafa;
+    --color-text-muted: #a1a1aa;
+    --color-text-subtle: #71717a;
+
+    --color-brand: #818cf8;
+    --color-brand-hover: #a5b4fc;
+    --color-brand-soft: #1e1b4b;
+    --color-brand-softer: #1b1832;
+
+    --color-success: #22c55e;
+    --color-success-soft: #052e16;
+    --color-danger: #f87171;
+    --color-danger-soft: #3b0e10;
+    --color-warning: #f59e0b;
+    --color-warning-soft: #3a2206;
+    --color-info: #38bdf8;
+    --color-info-soft: #062c3d;
+
+    --chart-grid: #27272a;
+  }
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.font-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.shadow-card {
+  box-shadow: var(--shadow-sm);
+}
+
+.shadow-card-hover {
+  box-shadow: var(--shadow-md);
+}
+
+.ring-focus {
+  outline: none;
+}
+
+.ring-focus:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-brand) 25%, transparent);
+  border-color: var(--color-brand);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-strong);
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  opacity: 0.6;
+  cursor: pointer;
+}
+
+/* Dark-mode: invert the calendar indicator so it's visible. */
+:root[data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator,
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+  }
+}
+
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 14px;
+  padding-right: 2rem;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes slide-in-left {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+.animate-fade-in { animation: fade-in 0.2s ease-out; }
+.animate-slide-up { animation: slide-up 0.25s ease-out; }
+.animate-scale-in { animation: scale-in 0.2s ease-out; }
+.animate-slide-in-left { animation: slide-in-left 0.22s ease-out; }

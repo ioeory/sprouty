@@ -1,0 +1,48 @@
+# ---------- Secrets ----------
+# Never commit real runtime env files. Keep .env.example tracked so
+# contributors can bootstrap from a sample.
+.env
+.env.*
+!.env.example
+
+# ---------- Node / Frontend ----------
+node_modules/
+**/node_modules/
+dist/
+dist-ssr/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---------- Go / Backend ----------
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/backend/sprouts-backend
+coverage.out
+
+# ---------- Editors / IDEs ----------
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+*.swp
+*.swo
+
+# ---------- OS ----------
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ---------- Misc ----------
+*.log
+logs/
+.cache/
+.tmp/

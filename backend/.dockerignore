@@ -1,0 +1,19 @@
+# Never leak real env into image layers
+.env
+.env.*
+
+# VCS / editor clutter
+.git
+.gitignore
+.idea
+.vscode
+
+# Build / test artifacts
+*.log
+**/*_test.go
+/sprouts-backend
+coverage.out
+
+# Local Docker files
+Dockerfile.dev
+docker-compose*.yml

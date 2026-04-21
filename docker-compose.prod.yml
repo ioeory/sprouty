@@ -1,0 +1,65 @@
+# Sprouty - production / released deployment
+#
+# Pulls pre-built images from GHCR instead of building from source.
+# Override image tags via env vars to pin a specific release, e.g.:
+#
+#   BACKEND_IMAGE=ghcr.io/you/sprouty-backend:v1.2.0 \
+#   FRONTEND_IMAGE=ghcr.io/you/sprouty-frontend:v1.2.0 \
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Note: container names and database identifiers still use "sprouts*" as an
+# internal code name for backwards compatibility with existing volumes and
+# client sessions. Do not rename them.
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: sprouts-db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-sprouts}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-sprouts123}
+      POSTGRES_DB: ${DB_NAME:-sprouts_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-sprouts} -d ${DB_NAME:-sprouts_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    # Replace OWNER with your GitHub username. The workflow auto-publishes to
+    # ghcr.io/<owner>/<repo>-backend based on github.repository, so if your repo
+    # is "owner/sprouty" the image will be "ghcr.io/owner/sprouty-backend".
+    image: ${BACKEND_IMAGE:-ghcr.io/OWNER/sprouty-backend:latest}
+    container_name: sprouts-backend
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-sprouts}
+      DB_PASSWORD: ${DB_PASSWORD:-sprouts123}
+      DB_NAME: ${DB_NAME:-sprouts_db}
+      PORT: 8080
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required - generate via openssl rand -hex 32}"
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
+      BOT_PROXY: ${BOT_PROXY:-}
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-ghcr.io/OWNER/sprouty-frontend:latest}
+    container_name: sprouts-frontend
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-4000}:80"
+
+volumes:
+  postgres_data:
