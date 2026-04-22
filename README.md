@@ -64,16 +64,16 @@ flowchart LR
 ```bash
 # 1. 下载生产 compose 与 env 模板
 mkdir sprouty && cd sprouty
-curl -fsSL https://raw.githubusercontent.com/OWNER/sprouty/main/docker-compose.prod.yml -o docker-compose.prod.yml
-curl -fsSL https://raw.githubusercontent.com/OWNER/sprouty/main/.env.example           -o .env
+curl -fsSL https://raw.githubusercontent.com/ioeory/sprouty/main/docker-compose.prod.yml -o docker-compose.prod.yml
+curl -fsSL https://raw.githubusercontent.com/ioeory/sprouty/main/.env.example           -o .env
 
 # 2. 修改 .env（务必改 JWT_SECRET 与 DB_PASSWORD）
 #    生成强随机 JWT：  openssl rand -hex 32
 vi .env
 
 # 3. 替换 compose 里的 OWNER/sprouty 为真实仓库路径，或通过环境变量覆盖
-export BACKEND_IMAGE=ghcr.io/<your-user>/sprouty-backend:latest
-export FRONTEND_IMAGE=ghcr.io/<your-user>/sprouty-frontend:latest
+export BACKEND_IMAGE=ghcr.io/ioeory/sprouty-backend:latest
+export FRONTEND_IMAGE=ghcr.io/ioeory/sprouty-frontend:latest
 
 # 4. 启动
 docker compose -f docker-compose.prod.yml up -d
@@ -95,7 +95,7 @@ docker compose -f docker-compose.prod.yml up -d
 适合本地开发或需要自定义构建参数：
 
 ```bash
-git clone https://github.com/OWNER/sprouty.git
+git clone https://github.com/ioeory/sprouty.git
 cd sprouty
 cp .env.example .env         # 修改 JWT_SECRET、DB_PASSWORD 等
 docker compose up -d --build

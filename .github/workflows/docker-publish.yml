@@ -4,12 +4,17 @@ name: Build and Publish Docker Images
 #   - push to main         -> push images tagged "latest" + "sha-<short>"
 #   - push tag vX.Y.Z      -> push semver tags (X.Y.Z, X.Y, X) + "latest"
 #   - PR to main           -> build only (validates Dockerfile), no push
+#   - Doc-only changes (paths-ignore) do not run this workflow — saves CI minutes.
 on:
   push:
     branches: [main]
     tags: ['v*.*.*']
+    paths-ignore:
+      - 'README.md'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'README.md'
   workflow_dispatch:
 
 permissions:
