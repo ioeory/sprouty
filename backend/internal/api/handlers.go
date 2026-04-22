@@ -37,14 +37,17 @@ func GetLedgers(c *gin.Context) {
 		if kw == nil {
 			kw = []gin.H{}
 		}
+		var memberCount int64
+		service.DB.Model(&models.LedgerUser{}).Where("ledger_id = ?", l.ID).Count(&memberCount)
 		out = append(out, gin.H{
-			"id":         l.ID,
-			"name":       l.Name,
-			"owner_id":   l.OwnerID,
-			"type":       l.Type,
-			"created_at": l.CreatedAt,
-			"updated_at": l.UpdatedAt,
-			"keywords":   kw,
+			"id":           l.ID,
+			"name":         l.Name,
+			"owner_id":     l.OwnerID,
+			"type":         l.Type,
+			"member_count": memberCount,
+			"created_at":   l.CreatedAt,
+			"updated_at":   l.UpdatedAt,
+			"keywords":     kw,
 		})
 	}
 	c.JSON(http.StatusOK, out)
@@ -63,9 +66,18 @@ func CreateLedger(c *gin.Context) {
 		return
 	}
 
+	lt := req.Type
+	if lt == "" {
+		lt = "personal"
+	}
+	if lt != "personal" && lt != "family" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "type must be personal or family"})
+		return
+	}
+
 	ledger := models.Ledger{
 		Name:    req.Name,
-		Type:    req.Type,
+		Type:    lt,
 		OwnerID: userUUID,
 	}
 
@@ -73,25 +85,75 @@ func CreateLedger(c *gin.Context) {
 		if err := tx.Create(&ledger).Error; err != nil {
 			return err
 		}
-		// Write the join row directly via raw SQL. We used to call
-		// `Association("Members").Append(&User{...ID...})`, which causes
-		// GORM to run an UPSERT against `users` — that inadvertently
-		// triggered `BeforeCreate`, replaced the real user ID with a new
-		// UUID, and then the join insert used an ID that didn't exist in
-		// `users`, giving a misleading FK violation. A plain INSERT into
-		// the join table is unambiguous.
-		return tx.Exec(
+		if err := tx.Exec(
 			`INSERT INTO ledger_users (ledger_id, user_id)
 			 VALUES (?, ?)
 			 ON CONFLICT DO NOTHING`,
 			ledger.ID, userUUID,
-		).Error
+		).Error; err != nil {
+			return err
+		}
+		initDefaultCategoriesForLedger(tx, ledger.ID)
+		return nil
 	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create ledger: " + err.Error()})
 		return
 	}
 
+	uid := userUUID
+	WriteAuditLog(c, &uid, "ledger.create", "ledger", strPtr(ledger.ID.String()), map[string]interface{}{
+		"name": ledger.Name, "type": ledger.Type,
+	})
+
 	c.JSON(http.StatusCreated, ledger)
+}
+
+// UpdateLedger renames a ledger (owner only).
+func UpdateLedger(c *gin.Context) {
+	userID := c.MustGet("user_id").(string)
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user"})
+		return
+	}
+	ledgerID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ledger id"})
+		return
+	}
+	var req struct {
+		Name string `json:"name" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var ledger models.Ledger
+	if err := service.DB.First(&ledger, "id = ?", ledgerID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "ledger not found"})
+		return
+	}
+	if ledger.OwnerID != userUUID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only the owner can rename"})
+		return
+	}
+	old := ledger.Name
+	if err := service.DB.Model(&ledger).Update("name", req.Name).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	service.DB.First(&ledger, "id = ?", ledgerID)
+	WriteAuditLog(c, &userUUID, "ledger.update", "ledger", strPtr(ledgerID.String()), map[string]interface{}{
+		"from": old, "to": req.Name,
+	})
+	c.JSON(http.StatusOK, gin.H{
+		"id":         ledger.ID,
+		"name":       ledger.Name,
+		"owner_id":   ledger.OwnerID,
+		"type":       ledger.Type,
+		"updated_at": ledger.UpdatedAt,
+	})
 }
 
 // Transaction Handlers

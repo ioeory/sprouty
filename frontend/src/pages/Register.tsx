@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Lock, User, Mail, ArrowRight, UserCircle, Sprout } from 'lucide-react';
 import api from '../api/client';
@@ -11,7 +11,23 @@ export default function Register() {
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [registrationOpen, setRegistrationOpen] = useState<boolean | null>(null);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      try {
+        const res = await api.get('/auth/registration-status');
+        if (!cancel) setRegistrationOpen(res.data.registration_open);
+      } catch {
+        if (!cancel) setRegistrationOpen(false);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, []);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,6 +97,16 @@ export default function Register() {
             </div>
           )}
 
+          {registrationOpen === false && (
+            <div className="p-4 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] text-sm text-[var(--color-text-muted)] space-y-3">
+              <p>当前未开放自助注册，请联系管理员。</p>
+              <Link to="/login" className="text-[var(--color-brand)] font-medium hover:underline">
+                返回登录
+              </Link>
+            </div>
+          )}
+
+          {registrationOpen !== false && (
           <form onSubmit={handleRegister} className="space-y-3.5">
             <Input
               label="昵称"
@@ -123,6 +149,7 @@ export default function Register() {
               注册
             </Button>
           </form>
+          )}
 
           <p className="text-center text-xs text-[var(--color-text-muted)]">
             已有账号？{' '}

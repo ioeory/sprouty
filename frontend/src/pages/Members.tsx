@@ -419,6 +419,9 @@ const CreateLedgerModal: React.FC<{ open: boolean; onClose: () => void; onSucces
         />
         <div>
           <p className="text-xs font-medium text-[var(--color-text-muted)] mb-1.5">类型</p>
+          <p className="text-[11px] text-[var(--color-text-subtle)] mb-2">
+            个人：仅自己使用；家庭：可生成邀请码让家人加入同一账本（加入后账本变为「家庭」类型）。
+          </p>
           <div className="grid grid-cols-2 gap-2">
             {(['personal', 'family'] as const).map((t) => (
               <button

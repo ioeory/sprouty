@@ -123,6 +123,13 @@ docker compose up -d --build
 | `BOT_PROXY` | 否 | 空 | 访问 `api.telegram.org` 的代理，例如 `http://host.docker.internal:7890` |
 | `BACKEND_PORT` | 否 | `8080` | 宿主机映射端口（仅 prod compose） |
 | `FRONTEND_PORT` | 否 | `4000` | 宿主机映射端口（仅 prod compose） |
+| `FRONTEND_BASE_URL` | OIDC 时建议设 | `http://localhost:4000` | OIDC 回调成功后浏览器重定向的前端根地址 |
+| `OIDC_ISSUER` | OIDC 时必填 | 空 | IdP Issuer URL（如 Keycloak realm、Google） |
+| `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | OIDC 时必填 | 空 | 在 IdP 注册的机密客户端 |
+| `OIDC_REDIRECT_URI` | OIDC 时必填 | 空 | 须与 IdP 完全一致，形如 `https://你的域名/api/auth/oidc/callback` |
+| `OIDC_SCOPES` | 否 | 代码默认 `openid profile email` | 空格分隔 |
+
+**账号与权限**：第一个成功注册的用户自动成为 **管理员**，并 **关闭公开注册**。管理员可在侧边栏 **系统管理** 中重新打开注册、查看审计日志。仅密码用户可用户名密码登录；纯 OIDC 用户需用 OIDC 入口登录。
 
 ---
 
@@ -130,7 +137,7 @@ docker compose up -d --build
 
 ### 1. 注册与账本
 
-首次访问 `http://localhost:4000` → 点"注册" → 登录后自动创建默认账本。点左上账本名可切换 / 新建 / 加入账本。
+首次访问 `http://localhost:4000` → 点「注册」→ 登录后自动创建默认账本（首个用户为管理员，随后默认关闭公开注册）。点左上账本名可切换 / 新建 / 加入账本；**账本所有者**可在标题栏铅笔图标处 **重命名账本**。
 
 ### 2. 分类、标签、项目
 

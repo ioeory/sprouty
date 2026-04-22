@@ -26,6 +26,19 @@ func main() {
 	{
 		auth.POST("/register", api.Register)
 		auth.POST("/login", api.Login)
+		auth.GET("/registration-status", api.RegistrationStatus)
+		auth.GET("/oidc/config", api.OIDCConfig)
+		auth.GET("/oidc/login", api.OIDCLogin)
+		auth.GET("/oidc/callback", api.OIDCCallback)
+		auth.POST("/oidc/exchange", api.OIDCExchange)
+	}
+
+	admin := r.Group("/api/admin")
+	admin.Use(api.AuthMiddleware(), api.RequireAdmin())
+	{
+		admin.GET("/settings", api.GetAdminSettings)
+		admin.PUT("/settings", api.PutAdminSettings)
+		admin.GET("/audit-logs", api.GetAuditLogs)
 	}
 
 	// Protected routes
@@ -35,6 +48,7 @@ func main() {
 		// Ledger routes
 		protected.GET("/ledgers", api.GetLedgers)
 		protected.POST("/ledgers", api.CreateLedger)
+		protected.PUT("/ledgers/:id", api.UpdateLedger)
 		protected.POST("/budgets", api.SetBudget)
 
 		// Ledger sharing

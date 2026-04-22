@@ -30,12 +30,55 @@ func (base *Base) BeforeCreate(tx *gorm.DB) (err error) {
 // User model
 type User struct {
 	Base
-	Username string   `gorm:"uniqueIndex;not null" json:"username"`
-	Password string   `gorm:"not null" json:"-"`
-	Email    *string  `gorm:"uniqueIndex" json:"email"`
-	Nickname string   `json:"nickname"`
-	Avatar   string   `json:"avatar"`
-	Ledgers  []Ledger `gorm:"many2many:ledger_users;" json:"ledgers"`
+	Username string  `gorm:"uniqueIndex;not null" json:"username"`
+	Password *string `json:"-"` // nil for OIDC-only users (column nullable in DB)
+	Email    *string `gorm:"uniqueIndex" json:"email"`
+	Nickname string  `json:"nickname"`
+	Avatar   string  `json:"avatar"`
+	// Role is "admin" or "user". First registered user becomes admin.
+	Role string `gorm:"size:16;default:user;index" json:"role"`
+	// OIDC link (unique together when both set)
+	OIDCIssuer  *string `gorm:"size:512;index" json:"-"`
+	OIDCSubject *string `gorm:"size:255;index" json:"-"`
+
+	Ledgers []Ledger `gorm:"many2many:ledger_users;" json:"ledgers"`
+}
+
+// SystemSettings holds singleton instance configuration (single row id=1).
+type SystemSettings struct {
+	ID               uint `gorm:"primaryKey"`
+	RegistrationOpen bool `gorm:"default:true"`
+	UpdatedAt        time.Time
+}
+
+// AuditLog records security-relevant actions for administrators.
+type AuditLog struct {
+	ID           uuid.UUID  `gorm:"type:uuid;primaryKey" json:"id"`
+	CreatedAt    time.Time  `gorm:"index" json:"created_at"`
+	ActorUserID  *uuid.UUID `gorm:"type:uuid;index" json:"actor_user_id"`
+	Action       string     `gorm:"size:64;index;not null" json:"action"`
+	ResourceType string     `gorm:"size:64;index" json:"resource_type"`
+	ResourceID   *string    `gorm:"size:64" json:"resource_id"`
+	IP           string     `gorm:"size:64" json:"ip"`
+	UserAgent    string     `gorm:"size:512" json:"user_agent"`
+	Metadata     string     `gorm:"type:text" json:"metadata"` // JSON string
+}
+
+// BeforeCreate sets UUID for audit log rows.
+func (a *AuditLog) BeforeCreate(tx *gorm.DB) error {
+	if a.ID == uuid.Nil {
+		a.ID = uuid.New()
+	}
+	return nil
+}
+
+// OIDCExchange stores a one-time code issued after successful OIDC callback;
+// the SPA exchanges it for an app JWT without putting tokens in the URL.
+type OIDCExchange struct {
+	Code      string    `gorm:"size:64;primaryKey" json:"-"`
+	UserID    uuid.UUID `gorm:"type:uuid;not null;index" json:"-"`
+	ExpiresAt time.Time `gorm:"index;not null" json:"-"`
+	CreatedAt time.Time `json:"-"`
 }
 
 // Ledger (Shared or Personal Account Book)

@@ -43,17 +43,73 @@ func InitDB() {
 		&models.LedgerInvite{},
 		&models.Tag{},
 		&models.TransactionTag{},
+		&models.SystemSettings{},
+		&models.AuditLog{},
+		&models.OIDCExchange{},
 	)
 	if err != nil {
 		log.Fatal("Failed to migrate database:", err)
 	}
 
 	DB = db
+	ensurePasswordNullable()
 	ensureUUIDColumns()
 	backfillBudgetScope()
 	ensureKeywordIndexes()
+	ensureOIDCUserIndexes()
 	backfillCategoryDefaults()
+	ensureSystemSettingsRow()
+	backfillSingleUserAdmin()
 	fmt.Println("Database connection established and migrated.")
+}
+
+// ensurePasswordNullable allows NULL password for OIDC-only users (legacy NOT NULL column).
+func ensurePasswordNullable() {
+	if err := DB.Exec(`ALTER TABLE users ALTER COLUMN password DROP NOT NULL`).Error; err != nil {
+		// already nullable or table missing — ignore
+		log.Printf("ensurePasswordNullable (may be no-op): %v", err)
+	}
+}
+
+func ensureSystemSettingsRow() {
+	var n int64
+	DB.Model(&models.SystemSettings{}).Where("id = ?", 1).Count(&n)
+	if n > 0 {
+		return
+	}
+	var cnt int64
+	DB.Model(&models.User{}).Count(&cnt)
+	regOpen := true
+	if cnt > 0 {
+		// Legacy DB already had users before system_settings existed — lock public signup.
+		regOpen = false
+	}
+	DB.Create(&models.SystemSettings{ID: 1, RegistrationOpen: regOpen})
+}
+
+// backfillSingleUserAdmin promotes the sole legacy user to admin (solo installs).
+func backfillSingleUserAdmin() {
+	var cnt int64
+	DB.Model(&models.User{}).Count(&cnt)
+	if cnt != 1 {
+		return
+	}
+	var u models.User
+	if err := DB.First(&u).Error; err != nil {
+		return
+	}
+	if u.Role == "" || u.Role == "user" {
+		DB.Model(&u).Update("role", "admin")
+	}
+}
+
+func ensureOIDCUserIndexes() {
+	stmt := `CREATE UNIQUE INDEX IF NOT EXISTS uq_users_oidc_issuer_subject
+	 ON users (oidc_issuer, oidc_subject)
+	 WHERE oidc_issuer IS NOT NULL AND oidc_subject IS NOT NULL AND deleted_at IS NULL`
+	if err := DB.Exec(stmt).Error; err != nil {
+		log.Printf("ensureOIDCUserIndexes: %v", err)
+	}
 }
 
 // ensureUUIDColumns rewrites legacy text foreign-key columns to proper uuid

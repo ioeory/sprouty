@@ -67,6 +67,45 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 
 		c.Set("user_id", rawUserID)
+		if r, ok := claims["role"].(string); ok && r != "" {
+			c.Set("role", r)
+		} else {
+			c.Set("role", "user")
+		}
 		c.Next()
+	}
+}
+
+// RequireAdmin aborts unless JWT role is admin (falls back to DB if claim missing).
+func RequireAdmin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role, _ := c.Get("role")
+		rs, _ := role.(string)
+		if rs == "admin" {
+			c.Next()
+			return
+		}
+		uidStr, ok := c.Get("user_id")
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+		raw, _ := uidStr.(string)
+		uid, err := uuid.Parse(raw)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			return
+		}
+		var u models.User
+		if err := service.DB.Select("role").First(&u, "id = ?", uid).Error; err != nil {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			return
+		}
+		if u.Role == "admin" {
+			c.Set("role", "admin")
+			c.Next()
+			return
+		}
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "需要管理员权限"})
 	}
 }

@@ -8,6 +8,7 @@ import Categories from './pages/Categories';
 import Members from './pages/Members';
 import Projects from './pages/Projects';
 import ProjectDetail from './pages/ProjectDetail';
+import Admin from './pages/Admin';
 import AppLayout from './components/AppLayout';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -37,6 +38,7 @@ function App() {
           <Route path="/projects/:id" element={<ProjectDetail />} />
           <Route path="/categories" element={<Categories />} />
           <Route path="/members" element={<Members />} />
+          <Route path="/admin" element={<Admin />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

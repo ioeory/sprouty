@@ -59,6 +59,8 @@ func CreateLedgerInvite(c *gin.Context) {
 		return
 	}
 
+	WriteAuditLog(c, &userID, "ledger.invite_created", "ledger", strPtr(ledgerID.String()), nil)
+
 	c.JSON(http.StatusOK, gin.H{
 		"code":       invite.Code,
 		"expires_in": 24 * 60 * 60,
@@ -110,6 +112,10 @@ func JoinLedger(c *gin.Context) {
 
 	var ledger models.Ledger
 	service.DB.First(&ledger, "id = ?", invite.LedgerID)
+
+	WriteAuditLog(c, &userID, "ledger.join", "ledger", strPtr(invite.LedgerID.String()), map[string]interface{}{
+		"code_used": true,
+	})
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":   "joined successfully",
@@ -207,6 +213,10 @@ func RemoveLedgerMember(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to remove member"})
 		return
 	}
+
+	WriteAuditLog(c, &userID, "ledger.member_removed", "ledger", strPtr(ledgerID.String()), map[string]interface{}{
+		"removed_user_id": memberID.String(),
+	})
 
 	c.Status(http.StatusNoContent)
 }

@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { Lock, User, ArrowRight, Sprout, Leaf, PiggyBank, Users } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { Lock, User, ArrowRight, Sprout, Leaf, PiggyBank, Users, KeyRound } from 'lucide-react';
 import api from '../api/client';
+import { apiAuthUrl } from '../lib/apiBase';
 import { Button, Input } from '../components/ui';
 
 export default function Login() {
@@ -9,7 +10,61 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [exchangeBusy, setExchangeBusy] = useState(false);
+  const exchangeStarted = useRef(false);
+  const [registrationOpen, setRegistrationOpen] = useState<boolean | null>(null);
+  const [oidcConfigured, setOidcConfigured] = useState(false);
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      try {
+        const [reg, oidc] = await Promise.all([
+          api.get('/auth/registration-status'),
+          api.get('/auth/oidc/config'),
+        ]);
+        if (!cancel) {
+          setRegistrationOpen(reg.data.registration_open);
+          setOidcConfigured(!!oidc.data.configured);
+        }
+      } catch {
+        if (!cancel) setRegistrationOpen(true);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const code = searchParams.get('exchange');
+    if (!code || exchangeStarted.current) return;
+    exchangeStarted.current = true;
+    let cancelled = false;
+    (async () => {
+      setExchangeBusy(true);
+      setError('');
+      try {
+        const res = await api.post('/auth/oidc/exchange', { code });
+        localStorage.setItem('sprouts_token', res.data.token);
+        localStorage.setItem('sprouts_user', JSON.stringify(res.data.user));
+        setSearchParams({});
+        navigate('/');
+      } catch (e: any) {
+        exchangeStarted.current = false;
+        if (!cancelled) {
+          setError(e.response?.data?.error || 'OIDC 登录失败');
+        }
+      } finally {
+        if (!cancelled) setExchangeBusy(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, navigate, setSearchParams]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,7 +84,6 @@ export default function Login() {
 
   return (
     <div className="min-h-screen grid md:grid-cols-2 bg-[var(--color-bg)]">
-      {/* Left brand pane */}
       <aside className="hidden md:flex flex-col justify-between p-10 relative overflow-hidden bg-gradient-to-br from-[var(--color-brand-softer)] to-[var(--color-surface-muted)]">
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-[var(--radius-md)] bg-[var(--color-brand)] text-white flex items-center justify-center">
@@ -66,11 +120,9 @@ export default function Login() {
           © {new Date().getFullYear()} Sprouty · 自托管 · 数据留在你手中
         </p>
 
-        {/* Decorative blob */}
         <div className="absolute -top-20 -right-20 w-72 h-72 rounded-full bg-[var(--color-brand)]/8 blur-3xl" />
       </aside>
 
-      {/* Right form */}
       <main className="flex items-center justify-center p-6 md:p-10">
         <div className="w-full max-w-sm space-y-8">
           <div className="md:hidden flex items-center gap-2.5 mb-4">
@@ -85,10 +137,28 @@ export default function Login() {
             <p className="text-sm text-[var(--color-text-muted)]">登录后继续管理你的账本</p>
           </div>
 
+          {exchangeBusy && (
+            <p className="text-xs text-[var(--color-text-muted)]">正在完成 OIDC 登录…</p>
+          )}
+
           {error && (
             <div className="p-3 rounded-[var(--radius-md)] bg-[var(--color-danger-soft)] border border-[var(--color-danger)]/20 text-xs text-[var(--color-danger)]">
               {error}
             </div>
+          )}
+
+          {oidcConfigured && (
+            <Button
+              type="button"
+              variant="outline"
+              fullWidth
+              leftIcon={<KeyRound size={16} />}
+              onClick={() => {
+                window.location.href = apiAuthUrl('/auth/oidc/login');
+              }}
+            >
+              使用 OIDC 登录
+            </Button>
           )}
 
           <form onSubmit={handleLogin} className="space-y-4">
@@ -116,12 +186,18 @@ export default function Login() {
             </Button>
           </form>
 
-          <p className="text-center text-xs text-[var(--color-text-muted)]">
-            还没有账号？{' '}
-            <Link to="/register" className="text-[var(--color-brand)] hover:underline font-medium">
-              立即注册
-            </Link>
-          </p>
+          {registrationOpen === false ? (
+            <p className="text-center text-xs text-[var(--color-text-muted)]">
+              公开注册已关闭，请联系管理员开通账号
+            </p>
+          ) : (
+            <p className="text-center text-xs text-[var(--color-text-muted)]">
+              还没有账号？{' '}
+              <Link to="/register" className="text-[var(--color-brand)] hover:underline font-medium">
+                立即注册
+              </Link>
+            </p>
+          )}
         </div>
       </main>
     </div>

@@ -14,8 +14,10 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  Shield,
+  Pencil,
 } from 'lucide-react';
-import { Sidebar, type NavItem, Button, ThemeToggle } from './ui';
+import { Sidebar, type NavItem, Button, ThemeToggle, Modal, Input } from './ui';
 import BotIntegrationModal from './BotIntegrationModal';
 import AddRecordModal from './AddRecordModal';
 import api from '../api/client';
@@ -25,6 +27,7 @@ export interface Ledger {
   name: string;
   type: string;
   owner_id?: string;
+  member_count?: number;
 }
 
 interface LayoutContext {
@@ -44,7 +47,7 @@ export function useLayout() {
   return ctx;
 }
 
-const NAV_ITEMS: NavItem[] = [
+const BASE_NAV: NavItem[] = [
   { to: '/', label: '仪表盘', icon: <LayoutDashboard size={16} /> },
   { to: '/transactions', label: '流水记录', icon: <Receipt size={16} /> },
   { to: '/projects', label: '项目预算', icon: <FolderKanban size={16} /> },
@@ -67,6 +70,20 @@ export default function AppLayout() {
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1';
   });
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+  const [renameSaving, setRenameSaving] = useState(false);
+  const [renameErr, setRenameErr] = useState('');
+
+  const navItems: NavItem[] = React.useMemo(() => {
+    if (user?.role === 'admin') {
+      return [
+        ...BASE_NAV,
+        { to: '/admin', label: '系统管理', icon: <Shield size={16} /> },
+      ];
+    }
+    return BASE_NAV;
+  }, [user?.role]);
 
   useEffect(() => {
     const raw = localStorage.getItem('sprouts_user');
@@ -162,7 +179,7 @@ export default function AppLayout() {
         <Sidebar
           brand={brandFull}
           brandCollapsed={brandCollapsed}
-          items={NAV_ITEMS}
+          items={navItems}
           footer={footerFull}
           footerCollapsed={footerCollapsed}
           open={sidebarOpen}
@@ -203,6 +220,20 @@ export default function AppLayout() {
                   </span>
                   <ChevronDown size={14} className="text-[var(--color-text-subtle)]" />
                 </button>
+                {currentLedger && user?.id && currentLedger.owner_id === user.id && (
+                  <button
+                    type="button"
+                    title="重命名账本"
+                    onClick={() => {
+                      setRenameValue(currentLedger.name);
+                      setRenameErr('');
+                      setRenameOpen(true);
+                    }}
+                    className="flex items-center justify-center w-9 h-9 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-muted)] text-[var(--color-text-muted)]"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                )}
                 {menuOpen && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
@@ -219,8 +250,10 @@ export default function AppLayout() {
                           }`}
                         >
                           <span className="truncate">{l.name}</span>
-                          <span className="text-[10px] text-[var(--color-text-subtle)] uppercase ml-3">
-                            {l.type === 'family' ? '共享' : '个人'}
+                          <span className="text-[10px] text-[var(--color-text-subtle)] ml-3 shrink-0">
+                            {l.type === 'family'
+                              ? `家庭 · ${l.member_count ?? '?'} 人`
+                              : `个人 · ${l.member_count ?? 1} 人`}
                           </span>
                         </button>
                       ))}
@@ -263,6 +296,53 @@ export default function AppLayout() {
             <Outlet />
           </main>
         </div>
+
+        {renameOpen && currentLedger && (
+          <Modal
+            open={renameOpen}
+            onClose={() => !renameSaving && setRenameOpen(false)}
+            title="重命名账本"
+            footer={
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" size="sm" disabled={renameSaving} onClick={() => setRenameOpen(false)}>
+                  取消
+                </Button>
+                <Button
+                  size="sm"
+                  loading={renameSaving}
+                  onClick={async () => {
+                    const name = renameValue.trim();
+                    if (!name) {
+                      setRenameErr('名称不能为空');
+                      return;
+                    }
+                    setRenameSaving(true);
+                    setRenameErr('');
+                    try {
+                      await api.put(`/ledgers/${currentLedger.id}`, { name });
+                      await refreshLedgers();
+                      setCurrentLedgerState((prev) =>
+                        prev && prev.id === currentLedger.id ? { ...prev, name } : prev,
+                      );
+                      setRenameOpen(false);
+                    } catch (e: any) {
+                      setRenameErr(e.response?.data?.error || '保存失败');
+                    } finally {
+                      setRenameSaving(false);
+                    }
+                  }}
+                >
+                  保存
+                </Button>
+              </div>
+            }
+          >
+            {renameErr && (
+              <p className="text-xs text-[var(--color-danger)] mb-2">{renameErr}</p>
+            )}
+            <Input label="账本名称" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} autoFocus />
+          </Modal>
+        )}
 
         {showBot && <BotIntegrationModal open onClose={() => setShowBot(false)} />}
         {showAdd && currentLedger && (
