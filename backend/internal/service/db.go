@@ -59,6 +59,7 @@ func InitDB() {
 	ensureOIDCUserIndexes()
 	backfillCategoryDefaults()
 	ensureSystemSettingsRow()
+	ensureRegistrationOpenWhenNoUsers()
 	backfillSingleUserAdmin()
 	fmt.Println("Database connection established and migrated.")
 }
@@ -85,6 +86,23 @@ func ensureSystemSettingsRow() {
 		regOpen = false
 	}
 	DB.Create(&models.SystemSettings{ID: 1, RegistrationOpen: regOpen})
+}
+
+// ensureRegistrationOpenWhenNoUsers forces public signup on when there are zero
+// users, so a brand-new volume / first boot can always create the bootstrap admin.
+// Also repairs bad state (e.g. registration_open=false with no users).
+func ensureRegistrationOpenWhenNoUsers() {
+	var cnt int64
+	if err := DB.Model(&models.User{}).Count(&cnt).Error; err != nil {
+		log.Printf("ensureRegistrationOpenWhenNoUsers count: %v", err)
+		return
+	}
+	if cnt > 0 {
+		return
+	}
+	if err := DB.Model(&models.SystemSettings{}).Where("id = ?", 1).Update("registration_open", true).Error; err != nil {
+		log.Printf("ensureRegistrationOpenWhenNoUsers update: %v", err)
+	}
 }
 
 // backfillSingleUserAdmin promotes the sole legacy user to admin (solo installs).

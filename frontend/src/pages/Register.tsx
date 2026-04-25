@@ -21,7 +21,9 @@ export default function Register() {
         const res = await api.get('/auth/registration-status');
         if (!cancel) setRegistrationOpen(res.data.registration_open);
       } catch {
-        if (!cancel) setRegistrationOpen(false);
+        // Must match Login.tsx: on network/API errors assume open so first deploy
+        // still shows the form. Real closed state is enforced by POST /register.
+        if (!cancel) setRegistrationOpen(true);
       }
     })();
     return () => {
