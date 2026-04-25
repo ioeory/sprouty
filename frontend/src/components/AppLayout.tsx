@@ -22,12 +22,21 @@ import BotIntegrationModal from './BotIntegrationModal';
 import AddRecordModal from './AddRecordModal';
 import api from '../api/client';
 
+export interface LedgerLinkedPersonal {
+  id: string;
+  name: string;
+}
+
 export interface Ledger {
   id: string;
   name: string;
   type: string;
   owner_id?: string;
   member_count?: number;
+  /** Present on family ledgers: personal sub-ledgers linked under this home book */
+  linked_personal?: LedgerLinkedPersonal[];
+  /** When this personal ledger is linked to a family, the parent family ledger id */
+  parent_family_id?: string;
 }
 
 interface LayoutContext {
@@ -94,6 +103,11 @@ export default function AppLayout() {
   useEffect(() => {
     window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed ? '1' : '0');
   }, [sidebarCollapsed]);
+
+  const rootLedgers = React.useMemo(
+    () => ledgers.filter((l) => !l.parent_family_id),
+    [ledgers],
+  );
 
   const refreshLedgers = async () => {
     try {
@@ -237,27 +251,51 @@ export default function AppLayout() {
                 {menuOpen && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-                    <div className="absolute left-0 top-full mt-1 z-20 min-w-[220px] rounded-[var(--radius-md)] bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg py-1">
-                      {ledgers.map((l) => (
-                        <button
-                          key={l.id}
-                          onClick={() => {
-                            setCurrentLedger(l);
-                            setMenuOpen(false);
-                          }}
-                          className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-[var(--color-surface-muted)] ${
-                            currentLedger?.id === l.id ? 'text-[var(--color-brand)] font-medium' : 'text-[var(--color-text)]'
-                          }`}
-                        >
-                          <span className="truncate">{l.name}</span>
-                          <span className="text-[10px] text-[var(--color-text-subtle)] ml-3 shrink-0">
-                            {l.type === 'family'
-                              ? `家庭 · ${l.member_count ?? '?'} 人`
-                              : `个人 · ${l.member_count ?? 1} 人`}
-                          </span>
-                        </button>
+                    <div className="absolute left-0 top-full mt-1 z-20 min-w-[240px] max-h-[min(70vh,420px)] overflow-y-auto rounded-[var(--radius-md)] bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg py-1">
+                      {rootLedgers.map((l) => (
+                        <React.Fragment key={l.id}>
+                          <button
+                            onClick={() => {
+                              setCurrentLedger(l);
+                              setMenuOpen(false);
+                            }}
+                            className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-[var(--color-surface-muted)] ${
+                              currentLedger?.id === l.id ? 'text-[var(--color-brand)] font-medium' : 'text-[var(--color-text)]'
+                            }`}
+                          >
+                            <span className="truncate">{l.name}</span>
+                            <span className="text-[10px] text-[var(--color-text-subtle)] ml-3 shrink-0">
+                              {l.type === 'family'
+                                ? `家庭 · ${l.member_count ?? '?'} 人`
+                                : `个人 · ${l.member_count ?? 1} 人`}
+                            </span>
+                          </button>
+                          {l.type === 'family' &&
+                            (l.linked_personal || []).map((sub) => {
+                              const full = ledgers.find((x) => x.id === sub.id);
+                              if (!full) return null;
+                              const active = currentLedger?.id === sub.id;
+                              return (
+                                <button
+                                  key={sub.id}
+                                  onClick={() => {
+                                    setCurrentLedger(full);
+                                    setMenuOpen(false);
+                                  }}
+                                  className={`w-full text-left pl-6 pr-3 py-1.5 text-xs flex items-center justify-between hover:bg-[var(--color-surface-muted)] ${
+                                    active ? 'text-[var(--color-brand)] font-medium' : 'text-[var(--color-text-muted)]'
+                                  }`}
+                                >
+                                  <span className="truncate">
+                                    <span className="text-[var(--color-text-subtle)] mr-1">└</span>
+                                    子账 · {sub.name}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                        </React.Fragment>
                       ))}
-                      {!ledgers.length && (
+                      {!rootLedgers.length && (
                         <p className="px-3 py-4 text-xs text-[var(--color-text-subtle)]">暂无账本</p>
                       )}
                     </div>

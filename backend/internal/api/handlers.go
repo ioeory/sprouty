@@ -590,6 +590,11 @@ func userLedgerIDs(userID uuid.UUID) []uuid.UUID {
 //	year_month=YYYY-MM          - specific month, overrides default current month
 //	year=YYYY                   - specific year, overrides default current year
 //
+// When ledger_id is a family ledger, expenses aggregate across that ledger plus any
+// linked personal sub-ledgers the user can access; monthly total_budget still uses
+// only the family ledger's budget row. Response fields includes_linked_personal /
+// linked_personal_in_cluster describe this mode.
+//
 // Response includes category_stats, project_stats and ledger_stats so the frontend
 // can switch dimension without a refetch.
 func GetDashboardSummary(c *gin.Context) {
@@ -640,11 +645,15 @@ func GetDashboardSummary(c *gin.Context) {
 	lastOfYear := time.Date(targetYear, 12, 31, 23, 59, 59, 0, loc)
 	currentMonth := firstOfMonth.Format("2006-01")
 
-	// Determine which ledgers to include
+	// Determine which ledgers to include (expense aggregation vs budget rows).
 	var ledgerIDs []uuid.UUID
+	var budgetLedgerIDs []uuid.UUID
+	includesLinkedPersonal := false
+	linkedPersonalInCluster := 0
 	scope := c.Query("scope")
 	if scope == "all" {
 		ledgerIDs = userLedgerIDs(userID)
+		budgetLedgerIDs = ledgerIDs
 	} else {
 		ledgerIDStr := c.Query("ledger_id")
 		if ledgerIDStr == "" {
@@ -661,6 +670,18 @@ func GetDashboardSummary(c *gin.Context) {
 			return
 		}
 		ledgerIDs = []uuid.UUID{lid}
+		budgetLedgerIDs = ledgerIDs
+		if len(ledgerIDs) == 1 {
+			var fam models.Ledger
+			if err := service.DB.First(&fam, "id = ?", ledgerIDs[0]).Error; err == nil && fam.Type == "family" {
+				ledgerIDs = expandUserAccessibleFamilyCluster(userID, ledgerIDs[0])
+				if len(ledgerIDs) > 1 {
+					budgetLedgerIDs = []uuid.UUID{ledgerIDs[0]}
+					includesLinkedPersonal = true
+					linkedPersonalInCluster = len(ledgerIDs) - 1
+				}
+			}
+		}
 	}
 
 	// --- Tag-based exclusion ---
@@ -719,22 +740,24 @@ func GetDashboardSummary(c *gin.Context) {
 	}
 
 	emptyResponse := gin.H{
-		"total_budget":      0,
-		"total_expense":     0,
-		"remaining_budget":  0,
-		"days_left":         1,
-		"daily_avg_limit":   0,
-		"current_month":     currentMonth,
-		"year":              targetYear,
-		"scope":             scope,
-		"group_by":          groupBy,
-		"period":            period,
-		"category_stats":    []any{},
-		"project_stats":     []any{},
-		"ledger_stats":      []any{},
-		"ledger_count":      0,
-		"excluded_tags":     excludedTagsForResp,
-		"bypass_tag_filter": bypassTags,
+		"total_budget":                 0,
+		"total_expense":                0,
+		"remaining_budget":             0,
+		"days_left":                    1,
+		"daily_avg_limit":              0,
+		"current_month":                currentMonth,
+		"year":                         targetYear,
+		"scope":                        scope,
+		"group_by":                     groupBy,
+		"period":                       period,
+		"category_stats":               []any{},
+		"project_stats":                []any{},
+		"ledger_stats":                 []any{},
+		"ledger_count":                 0,
+		"excluded_tags":                excludedTagsForResp,
+		"bypass_tag_filter":            bypassTags,
+		"includes_linked_personal":     false,
+		"linked_personal_in_cluster":   0,
 	}
 
 	if len(ledgerIDs) == 0 {
@@ -746,7 +769,7 @@ func GetDashboardSummary(c *gin.Context) {
 	// don't change how budgets are set - they're month-scoped by design).
 	var totalBudget float64
 	service.DB.Model(&models.Budget{}).
-		Where("ledger_id IN ? AND scope = 'ledger_total' AND year_month = ?", ledgerIDs, now.Format("2006-01")).
+		Where("ledger_id IN ? AND scope = 'ledger_total' AND year_month = ?", budgetLedgerIDs, now.Format("2006-01")).
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&totalBudget)
 
@@ -860,22 +883,24 @@ func GetDashboardSummary(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"total_budget":      totalBudget,
-		"total_expense":     totalExpense,
-		"remaining_budget":  remainingCurrentMonth,
-		"days_left":         daysLeft,
-		"daily_avg_limit":   dailyAvg,
-		"current_month":     currentMonth,
-		"year":              targetYear,
-		"scope":             scope,
-		"group_by":          groupBy,
-		"period":            period,
-		"category_stats":    catStats,
-		"project_stats":     projectStats,
-		"ledger_stats":      ledgerStats,
-		"ledger_count":      len(ledgerIDs),
-		"excluded_tags":     excludedTagsForResp,
-		"bypass_tag_filter": bypassTags,
+		"total_budget":                 totalBudget,
+		"total_expense":                totalExpense,
+		"remaining_budget":             remainingCurrentMonth,
+		"days_left":                    daysLeft,
+		"daily_avg_limit":              dailyAvg,
+		"current_month":                currentMonth,
+		"year":                         targetYear,
+		"scope":                        scope,
+		"group_by":                     groupBy,
+		"period":                       period,
+		"category_stats":               catStats,
+		"project_stats":                projectStats,
+		"ledger_stats":                 ledgerStats,
+		"ledger_count":                 len(ledgerIDs),
+		"excluded_tags":                excludedTagsForResp,
+		"bypass_tag_filter":            bypassTags,
+		"includes_linked_personal":     includesLinkedPersonal,
+		"linked_personal_in_cluster":   linkedPersonalInCluster,
 	})
 }
 

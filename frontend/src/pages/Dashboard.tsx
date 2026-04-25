@@ -53,6 +53,9 @@ interface Summary {
   ledger_count?: number;
   excluded_tags?: TagRef[];
   bypass_tag_filter?: boolean;
+  /** True when viewing a family ledger and expenses aggregate linked personal books you can access */
+  includes_linked_personal?: boolean;
+  linked_personal_in_cluster?: number;
 }
 
 type Scope = 'current' | 'all';
@@ -137,7 +140,7 @@ function formatDateShort(iso: string): string {
 }
 
 export default function Dashboard() {
-  const { currentLedger } = useLayout();
+  const { currentLedger, ledgers, setCurrentLedger } = useLayout();
   const navigate = useNavigate();
 
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -296,6 +299,40 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+
+      {scope === 'current' &&
+        currentLedger.type === 'family' &&
+        (currentLedger.linked_personal?.length ?? 0) > 0 && (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)]/60">
+            <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
+              {summary?.includes_linked_personal ? (
+                <>
+                  支出与图表已汇总 <span className="font-medium text-[var(--color-text)]">家庭账本 + 您已关联的 {summary.linked_personal_in_cluster} 个个人子账本</span>
+                  ；月预算仍仅按家庭账本设定。
+                </>
+              ) : (
+                <>已关联个人子账本；若刚完成关联，请刷新页面以更新汇总。</>
+              )}
+            </p>
+            <div className="flex flex-wrap gap-2 shrink-0">
+              {(currentLedger.linked_personal || []).map((sub) => {
+                const full = ledgers.find((x) => x.id === sub.id);
+                if (!full) return null;
+                return (
+                  <Button
+                    key={sub.id}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentLedger(full)}
+                  >
+                    打开「{sub.name}」
+                  </Button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
       {/* Stats grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
