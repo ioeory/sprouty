@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sprouts-self/backend/internal/models"
 
 	"github.com/google/uuid"
@@ -61,6 +62,7 @@ func InitDB() {
 	ensureSystemSettingsRow()
 	ensureRegistrationOpenWhenNoUsers()
 	backfillSingleUserAdmin()
+	ensureAtLeastOneAdmin()
 	fmt.Println("Database connection established and migrated.")
 }
 
@@ -119,6 +121,41 @@ func backfillSingleUserAdmin() {
 	if u.Role == "" || u.Role == "user" {
 		DB.Model(&u).Update("role", "admin")
 	}
+}
+
+// ensureAtLeastOneAdmin promotes a user when the DB has accounts but none with
+// role admin (legacy installs before admin roles). Prefer BOOTSTRAP_ADMIN_USERNAME
+// when set; otherwise the oldest user by created_at.
+func ensureAtLeastOneAdmin() {
+	var adminCount int64
+	if err := DB.Model(&models.User{}).Where("role = ?", "admin").Count(&adminCount).Error; err != nil {
+		log.Printf("ensureAtLeastOneAdmin count: %v", err)
+		return
+	}
+	if adminCount > 0 {
+		return
+	}
+	bootstrap := strings.TrimSpace(os.Getenv("BOOTSTRAP_ADMIN_USERNAME"))
+	var u models.User
+	if bootstrap != "" {
+		if err := DB.Where("username = ?", bootstrap).First(&u).Error; err == nil {
+			if err := DB.Model(&u).Update("role", "admin").Error; err != nil {
+				log.Printf("ensureAtLeastOneAdmin bootstrap update: %v", err)
+				return
+			}
+			log.Printf("ensureAtLeastOneAdmin: promoted %q (BOOTSTRAP_ADMIN_USERNAME)", u.Username)
+			return
+		}
+		log.Printf("ensureAtLeastOneAdmin: BOOTSTRAP_ADMIN_USERNAME=%q not found, using oldest user", bootstrap)
+	}
+	if err := DB.Order("created_at ASC").First(&u).Error; err != nil {
+		return
+	}
+	if err := DB.Model(&u).Update("role", "admin").Error; err != nil {
+		log.Printf("ensureAtLeastOneAdmin oldest update: %v", err)
+		return
+	}
+	log.Printf("ensureAtLeastOneAdmin: promoted oldest user %q to admin", u.Username)
 }
 
 func ensureOIDCUserIndexes() {

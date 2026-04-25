@@ -40,6 +40,8 @@ services:
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
       OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-}
       OIDC_SCOPES: ${OIDC_SCOPES:-}
+      # When the DB has users but zero admins (legacy), promote this user on boot.
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-}
     ports:
       - "8080:8080"
 
