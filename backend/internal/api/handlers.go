@@ -444,7 +444,7 @@ func UpdateTransaction(c *gin.Context) {
 	}
 
 	if !userCanAccessLedger(userID, tx.LedgerID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "no access to this ledger"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "无权限修改该流水：您不是该笔记录所属账本的成员（例如家庭视图下合并展示了他人的关联子账流水）"})
 		return
 	}
 
@@ -535,7 +535,7 @@ func DeleteTransaction(c *gin.Context) {
 	}
 
 	if !userCanAccessLedger(userID, tx.LedgerID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "no access to this ledger"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "无法删除该流水：您不是该笔记录所属账本的成员（例如他人关联到家庭账的个人子账中的记录）"})
 		return
 	}
 

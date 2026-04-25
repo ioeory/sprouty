@@ -14,7 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import api from '../api/client';
-import { Button, Card, CategoryIcon, EmptyState, Input, Select, Modal } from '../components/ui';
+import { Badge, Button, Card, CategoryIcon, EmptyState, Input, Select, Modal } from '../components/ui';
 import AddRecordModal from '../components/AddRecordModal';
 import { useLayout } from '../components/AppLayout';
 
@@ -71,6 +71,16 @@ function fmtDateHeader(key: string): string {
 
 const PAGE_SIZE = 50;
 
+/** 当前用户作为成员可写操作的账本 ID（家庭合并视图下，他人子账流水不在此集合中） */
+function useMutableLedgerIdSet(ledgers: { id: string }[]) {
+  return useMemo(() => new Set(ledgers.map((l) => l.id)), [ledgers]);
+}
+
+function canMutateTransaction(tx: Transaction, currentLedgerId: string, mutableIds: Set<string>): boolean {
+  const lid = tx.ledger_id || currentLedgerId;
+  return mutableIds.has(lid);
+}
+
 function mergeCategoriesById(lists: Category[][]): Category[] {
   const out: Category[] = [];
   const seen = new Set<string>();
@@ -87,6 +97,7 @@ function mergeCategoriesById(lists: Category[][]): Category[] {
 
 export default function Transactions() {
   const { currentLedger, ledgers } = useLayout();
+  const mutableLedgerIds = useMutableLedgerIdSet(ledgers);
   const [txs, setTxs] = useState<Transaction[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -105,6 +116,7 @@ export default function Transactions() {
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<Transaction | null>(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
+  const [txFeedback, setTxFeedback] = useState('');
 
   const categoryMap = useMemo(() => {
     const map: Record<string, Category> = {};
@@ -208,13 +220,22 @@ export default function Transactions() {
 
   const confirmDelete = async () => {
     if (!deleting) return;
+    if (!canMutateTransaction(deleting, currentLedger.id, mutableLedgerIds)) {
+      setTxFeedback('无法删除：该笔流水记在关联成员的子账上，您不是该子账成员。');
+      setDeleting(null);
+      return;
+    }
     setConfirmLoading(true);
+    setTxFeedback('');
     try {
       await api.delete(`/transactions/${deleting.id}`);
       setDeleting(null);
       load(true);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error(err);
+      const msg =
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error || '删除失败，请稍后重试';
+      setTxFeedback(msg);
     } finally {
       setConfirmLoading(false);
     }
@@ -228,18 +249,42 @@ export default function Transactions() {
     );
   }
 
+  const showMergedFamilyHint =
+    currentLedger.type === 'family' &&
+    ((currentLedger.linked_personal_count ?? 0) > 0 || (currentLedger.linked_personal?.length ?? 0) > 0);
+
   return (
     <div className="space-y-5">
+      {txFeedback && (
+        <div
+          className="p-3 rounded-[var(--radius-md)] text-xs border border-[var(--color-border)] bg-[var(--color-surface-muted)] text-[var(--color-text)] flex justify-between gap-3 items-start"
+          role="status"
+        >
+          <span>{txFeedback}</span>
+          <button
+            type="button"
+            onClick={() => setTxFeedback('')}
+            className="shrink-0 text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+            aria-label="关闭提示"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
       <div className="flex items-end justify-between gap-4 flex-wrap">
         <div>
           <p className="text-xs text-[var(--color-text-subtle)] uppercase tracking-widest">
             {currentLedger.name}
-            {currentLedger.type === 'family' &&
-              ((currentLedger.linked_personal_count ?? 0) > 0 || (currentLedger.linked_personal?.length ?? 0) > 0) && (
+            {showMergedFamilyHint && (
               <span className="normal-case text-[var(--color-text-muted)]"> · 含本家庭已关联子账流水</span>
             )}
           </p>
           <h1 className="text-xl font-semibold text-[var(--color-text)] mt-1">流水记录</h1>
+          {showMergedFamilyHint && (
+            <p className="text-[11px] text-[var(--color-text-muted)] mt-1.5 max-w-xl leading-relaxed">
+              若某笔来自其他成员关联的个人子账，且您不是该子账成员，则仅可查看；编辑、删除按钮不可用。删除接口也会校验权限。
+            </p>
+          )}
         </div>
         <div className="flex gap-2">
           <Button
@@ -373,6 +418,7 @@ export default function Transactions() {
                         tx.ledger_id && tx.ledger_id !== currentLedger.id
                           ? ledgers.find((l) => l.id === tx.ledger_id)?.name
                           : null;
+                      const canMutate = canMutateTransaction(tx, currentLedger.id, mutableLedgerIds);
                       return (
                         <li
                           key={tx.id}
@@ -380,10 +426,15 @@ export default function Transactions() {
                         >
                           <CategoryIcon name={cat?.icon} color={cat?.color} size={36} />
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm text-[var(--color-text)] truncate flex items-center gap-1.5">
+                            <p className="text-sm text-[var(--color-text)] truncate flex items-center gap-1.5 flex-wrap">
                               {cat?.name || '未分类'}
                               {subName && (
                                 <span className="text-[10px] text-[var(--color-brand)] shrink-0">· {subName}</span>
+                              )}
+                              {!canMutate && (
+                                <Badge tone="warning" className="!text-[10px] !py-0 !px-1.5 font-normal shrink-0">
+                                  无权限修改
+                                </Badge>
                               )}
                               {tx.type === 'income' ? (
                                 <ArrowUp size={12} className="text-[var(--color-success)]" />
@@ -425,18 +476,52 @@ export default function Transactions() {
                               maximumFractionDigits: 2,
                             })}
                           </span>
-                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div
+                            className={`flex items-center gap-1 transition-opacity ${
+                              canMutate ? 'opacity-0 group-hover:opacity-100' : 'opacity-100'
+                            }`}
+                          >
                             <button
-                              onClick={() => setEditing(tx)}
-                              title="编辑"
-                              className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-subtle)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)]"
+                              type="button"
+                              disabled={!canMutate}
+                              onClick={() => {
+                                if (!canMutate) {
+                                  setTxFeedback(
+                                    '无权限修改：该笔流水记在关联成员的子账上，您不是该子账成员，无法在合并视图中编辑。',
+                                  );
+                                  return;
+                                }
+                                setTxFeedback('');
+                                setEditing(tx);
+                              }}
+                              title={
+                                canMutate
+                                  ? '编辑'
+                                  : '无权限修改：该笔流水属于其他成员关联的子账，您仅可在此查看'
+                              }
+                              className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-subtle)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[var(--color-text-subtle)]"
                             >
                               <Pencil size={13} />
                             </button>
                             <button
-                              onClick={() => setDeleting(tx)}
-                              title="删除"
-                              className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-subtle)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)]"
+                              type="button"
+                              disabled={!canMutate}
+                              onClick={() => {
+                                if (!canMutate) {
+                                  setTxFeedback(
+                                    '无法删除：该笔流水记在关联成员的子账上，您不是该子账成员，无权删除。',
+                                  );
+                                  return;
+                                }
+                                setTxFeedback('');
+                                setDeleting(tx);
+                              }}
+                              title={
+                                canMutate
+                                  ? '删除'
+                                  : '无法删除：该笔流水属于其他成员关联的子账，仅该子账成员可删除'
+                              }
+                              className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-subtle)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[var(--color-text-subtle)]"
                             >
                               <Trash2 size={13} />
                             </button>
@@ -474,7 +559,7 @@ export default function Transactions() {
       {editing && currentLedger && (
         <AddRecordModal
           open
-          ledgerId={currentLedger.id}
+          ledgerId={editing.ledger_id || currentLedger.id}
           initial={{
             ...editing,
             tag_ids: editing.tag_refs?.map((t) => t.id) ?? [],

@@ -101,9 +101,9 @@ func GetAuditLogs(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"items": rows,
-		"total": total,
-		"page":  page,
+		"items":     FormatAuditLogItems(rows),
+		"total":     total,
+		"page":      page,
 		"page_size": pageSize,
 	})
 }

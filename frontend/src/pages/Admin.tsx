@@ -12,6 +12,12 @@ interface AuditItem {
   resource_id?: string;
   ip: string;
   metadata: string;
+  /** 后端生成：操作者可读称呼 */
+  actor_label?: string;
+  /** 后端生成：资源对象可读说明 */
+  resource_label?: string;
+  /** 后端生成：一句话中文说明 */
+  summary?: string;
 }
 
 interface ManagedUser {
@@ -365,28 +371,32 @@ export default function Admin() {
           <table className="w-full text-xs text-left border-collapse">
             <thead>
               <tr className="border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
-                <th className="py-2 pr-2 font-medium">时间</th>
-                <th className="py-2 pr-2 font-medium">动作</th>
+                <th className="py-2 pr-2 font-medium w-[11rem]">时间</th>
+                <th className="py-2 pr-2 font-medium min-w-[14rem]">说明</th>
                 <th className="py-2 pr-2 font-medium">操作者</th>
-                <th className="py-2 pr-2 font-medium">资源</th>
+                <th className="py-2 pr-2 font-medium">对象</th>
+                <th className="py-2 pr-2 font-medium">技术标识</th>
                 <th className="py-2 pr-2 font-medium">IP</th>
               </tr>
             </thead>
             <tbody>
               {logs.map((row) => (
-                <tr key={row.id} className="border-b border-[var(--color-border)]/60">
+                <tr key={row.id} className="border-b border-[var(--color-border)]/60 align-top">
                   <td className="py-2 pr-2 whitespace-nowrap text-[var(--color-text-subtle)]">
                     {new Date(row.created_at).toLocaleString()}
                   </td>
-                  <td className="py-2 pr-2 text-[var(--color-text)]">{row.action}</td>
-                  <td className="py-2 pr-2 font-mono text-[10px] text-[var(--color-text-muted)]">
-                    {row.actor_user_id?.slice(0, 8) || '—'}
+                  <td className="py-2 pr-2 text-[var(--color-text)] text-[13px] leading-snug">
+                    {row.summary || row.action}
                   </td>
-                  <td className="py-2 pr-2 text-[var(--color-text-muted)]">
-                    {row.resource_type}
-                    {row.resource_id ? ` / ${row.resource_id.slice(0, 8)}` : ''}
+                  <td className="py-2 pr-2 text-[var(--color-text-muted)] text-[12px]">
+                    {row.actor_label || (row.actor_user_id ? `用户（${row.actor_user_id.slice(0, 8)}…）` : '系统')}
                   </td>
-                  <td className="py-2 pr-2 text-[var(--color-text-subtle)]">{row.ip || '—'}</td>
+                  <td className="py-2 pr-2 text-[var(--color-text-muted)] text-[12px]">{row.resource_label || '—'}</td>
+                  <td className="py-2 pr-2 font-mono text-[10px] text-[var(--color-text-subtle)] break-all max-w-[10rem]">
+                    {row.action}
+                    {row.resource_id ? ` · ${row.resource_id.slice(0, 8)}…` : ''}
+                  </td>
+                  <td className="py-2 pr-2 text-[var(--color-text-subtle)] whitespace-nowrap">{row.ip || '—'}</td>
                 </tr>
               ))}
             </tbody>
