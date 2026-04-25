@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 func AuthMiddleware() gin.HandlerFunc {
@@ -53,25 +54,43 @@ func AuthMiddleware() gin.HandlerFunc {
 			})
 			return
 		}
-		var count int64
-		if err := service.DB.Model(&models.User{}).Where("id = ?", uid).Count(&count).Error; err != nil {
+		var u models.User
+		if err := service.DB.Select("id, role, is_active").First(&u, "id = ?", uid).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+					"error": "账号已不存在，请重新登录",
+					"code":  "auth/user-not-found",
+				})
+				return
+			}
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "auth check failed"})
 			return
 		}
-		if count == 0 {
+		if u.ID == uuid.Nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"error": "账号已不存在，请重新登录",
 				"code":  "auth/user-not-found",
 			})
 			return
 		}
+		if !u.IsActive {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "账号已禁用，请联系管理员",
+				"code":  "auth/user-disabled",
+			})
+			return
+		}
 
 		c.Set("user_id", rawUserID)
-		if r, ok := claims["role"].(string); ok && r != "" {
-			c.Set("role", r)
-		} else {
-			c.Set("role", "user")
+		role := u.Role
+		if role == "" {
+			if r, ok := claims["role"].(string); ok && r != "" {
+				role = r
+			} else {
+				role = "user"
+			}
 		}
+		c.Set("role", role)
 		c.Next()
 	}
 }

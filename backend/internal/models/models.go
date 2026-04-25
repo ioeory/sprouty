@@ -35,6 +35,7 @@ type User struct {
 	Email    *string `gorm:"uniqueIndex" json:"email"`
 	Nickname string  `json:"nickname"`
 	Avatar   string  `json:"avatar"`
+	IsActive bool    `gorm:"default:true;index" json:"is_active"`
 	// Role is "admin" or "user". First registered user becomes admin.
 	Role string `gorm:"size:16;default:user;index" json:"role"`
 	// OIDC link (unique together when both set)

@@ -38,6 +38,10 @@ func main() {
 	{
 		admin.GET("/settings", api.GetAdminSettings)
 		admin.PUT("/settings", api.PutAdminSettings)
+		admin.POST("/users", api.AdminCreateUser)
+		admin.GET("/users", api.GetAdminUsers)
+		admin.PUT("/users/:id/password", api.AdminResetUserPassword)
+		admin.PUT("/users/:id/status", api.AdminSetUserStatus)
 		admin.GET("/audit-logs", api.GetAuditLogs)
 	}
 

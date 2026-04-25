@@ -54,6 +54,7 @@ func userJSON(user *models.User) gin.H {
 		"id":       user.ID,
 		"username": user.Username,
 		"nickname": user.Nickname,
+		"is_active": user.IsActive,
 		"role":     role,
 	}
 }
@@ -102,6 +103,7 @@ func Register(c *gin.Context) {
 		Password: &pw,
 		Email:    emailPtr,
 		Nickname: req.Nickname,
+		IsActive: true,
 		Role:     "user",
 	}
 	if user.ID == uuid.Nil {
@@ -194,6 +196,13 @@ func Login(c *gin.Context) {
 			"reason": "bad_password",
 		})
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+		return
+	}
+	if !user.IsActive {
+		WriteAuditLog(c, &user.ID, "auth.login_failed", "user", strPtr(user.ID.String()), map[string]interface{}{
+			"reason": "inactive_user",
+		})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "账号已被禁用，请联系管理员"})
 		return
 	}
 
