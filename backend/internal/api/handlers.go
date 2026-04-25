@@ -621,10 +621,10 @@ func userLedgerIDs(userID uuid.UUID) []uuid.UUID {
 //	year_month=YYYY-MM          - specific month, overrides default current month
 //	year=YYYY                   - specific year, overrides default current year
 //
-// When ledger_id is a family ledger, expenses and monthly ledger_total budgets both
-// aggregate across that ledger plus every personal sub-ledger linked to the family
-// (sum of each book's scope=ledger_total for the active month). Response fields
-// includes_linked_personal / linked_personal_in_cluster describe this mode.
+// When ledger_id is a family ledger, expenses aggregate across that ledger plus every
+// linked personal (merged household flow). Monthly ledger_total budget uses only the
+// family ledger's own budget row. Response fields includes_linked_personal /
+// linked_personal_in_cluster describe the expense cluster.
 //
 // Response includes category_stats, project_stats and ledger_stats so the frontend
 // can switch dimension without a refetch.
@@ -705,10 +705,11 @@ func GetDashboardSummary(c *gin.Context) {
 		if len(ledgerIDs) == 1 {
 			var fam models.Ledger
 			if err := service.DB.First(&fam, "id = ?", ledgerIDs[0]).Error; err == nil && fam.Type == "family" {
-				ledgerIDs = expandFamilyLinkedCluster(ledgerIDs[0])
+				familyLID := ledgerIDs[0]
+				ledgerIDs = expandFamilyLinkedCluster(familyLID)
 				if len(ledgerIDs) > 1 {
-					// Same IDs as expense cluster: sum ledger_total budgets on family + each linked personal.
-					budgetLedgerIDs = ledgerIDs
+					// Expenses/charts use family + all linked personals; monthly「账本总预算」只算家庭账本本身。
+					budgetLedgerIDs = []uuid.UUID{familyLID}
 					includesLinkedPersonal = true
 					linkedPersonalInCluster = len(ledgerIDs) - 1
 				}

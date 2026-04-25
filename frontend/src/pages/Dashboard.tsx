@@ -343,7 +343,7 @@ export default function Dashboard() {
               {summary?.includes_linked_personal ? (
                 <>
                   支出与图表已汇总 <span className="font-medium text-[var(--color-text)]">家庭账本 + 本家庭已关联的 {summary.linked_personal_in_cluster} 个个人子账本</span>
-                  （含其他成员关联账本的流水，无需打开对方子账即可查看）；本月总预算为各账本「月度总预算」之和（未设则为 0），与合并支出对比。
+                  （含其他成员关联账本的流水，无需打开对方子账即可查看）；本月「账本总预算」仅指家庭账本设定值，与上述合并支出对比（子账各自预算不计入此处）。
                 </>
               ) : (
                 <>已关联个人子账本；若刚完成关联，请刷新页面以更新汇总。</>
