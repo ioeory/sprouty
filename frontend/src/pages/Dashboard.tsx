@@ -23,7 +23,7 @@ import api from '../api/client';
 import SpendingChart from '../components/SpendingChart';
 import EditBudgetModal from '../components/EditBudgetModal';
 import { Button, Card, CardHeader, EmptyState, Badge, CategoryIcon } from '../components/ui';
-import { useLayout } from '../components/AppLayout';
+import { useLayout, type Ledger } from '../components/AppLayout';
 
 interface CategoryStat {
   name: string;
@@ -77,6 +77,26 @@ interface Transaction {
   category_id: string;
   note: string;
   date: string;
+  ledger_id?: string;
+}
+
+function ledgerClusterIds(ledger: Ledger): string[] {
+  if (ledger.type !== 'family') return [ledger.id];
+  return [ledger.id, ...(ledger.linked_personal || []).map((p) => p.id)];
+}
+
+function mergeById<T extends { id: string }>(lists: T[][]): T[] {
+  const out: T[] = [];
+  const seen = new Set<string>();
+  for (const list of lists) {
+    for (const item of list) {
+      if (!seen.has(item.id)) {
+        seen.add(item.id);
+        out.push(item);
+      }
+    }
+  }
+  return out;
 }
 
 interface SegmentedItem<T extends string> {
@@ -165,31 +185,32 @@ export default function Dashboard() {
     return map;
   }, [categories]);
 
-  const load = async (ledgerId: string) => {
+  const load = async (ledger: Ledger) => {
     try {
       setLoading(true);
       const sumParams = new URLSearchParams({ group_by: groupBy, period });
       if (scope === 'all') {
         sumParams.set('scope', 'all');
       } else {
-        sumParams.set('ledger_id', ledgerId);
+        sumParams.set('ledger_id', ledger.id);
       }
       if (bypassTagFilter) {
         sumParams.set('bypass_tag_filter', 'true');
       } else if (manualExcludeTagIds.length > 0) {
         sumParams.set('exclude_tag_ids', manualExcludeTagIds.join(','));
       }
-      const [sumRes, catRes, txRes, tagRes] = await Promise.all([
+      const cluster = ledgerClusterIds(ledger);
+      const [sumRes, txRes, catResults, tagResults] = await Promise.all([
         api.get(`/dashboard/summary?${sumParams.toString()}`),
-        api.get(`/categories?ledger_id=${ledgerId}`),
-        api.get(`/transactions?ledger_id=${ledgerId}&limit=5`),
-        api.get(`/tags?ledger_id=${ledgerId}`),
+        api.get(`/transactions?ledger_id=${ledger.id}&limit=5`),
+        Promise.all(cluster.map((id) => api.get(`/categories?ledger_id=${id}`))),
+        Promise.all(cluster.map((id) => api.get(`/tags?ledger_id=${id}`))),
       ]);
       setSummary(sumRes.data);
-      setCategories(catRes.data || []);
+      setCategories(mergeById(catResults.map((r) => r.data || [])));
       const txs = Array.isArray(txRes.data) ? txRes.data : txRes.data?.items || [];
       setRecent(txs.slice(0, 5));
-      setAllTags(tagRes.data || []);
+      setAllTags(mergeById(tagResults.map((r) => r.data || [])));
     } catch (err) {
       console.error('Failed to load dashboard', err);
     } finally {
@@ -197,12 +218,23 @@ export default function Dashboard() {
     }
   };
 
+  const linkedKey = currentLedger?.linked_personal?.map((p) => p.id).join(',') ?? '';
+
   useEffect(() => {
-    if (currentLedger) load(currentLedger.id);
-    const refresh = () => currentLedger && load(currentLedger.id);
+    if (currentLedger) void load(currentLedger);
+    const refresh = () => currentLedger && void load(currentLedger);
     window.addEventListener('sprouts:refresh', refresh);
     return () => window.removeEventListener('sprouts:refresh', refresh);
-  }, [currentLedger?.id, scope, groupBy, period, bypassTagFilter, manualExcludeTagIds.join(',')]);
+  }, [
+    currentLedger?.id,
+    currentLedger?.type,
+    linkedKey,
+    scope,
+    groupBy,
+    period,
+    bypassTagFilter,
+    manualExcludeTagIds.join(','),
+  ]);
 
   const toggleManualExcludeTag = (id: string) => {
     setManualExcludeTagIds((prev) =>
@@ -308,7 +340,7 @@ export default function Dashboard() {
               {summary?.includes_linked_personal ? (
                 <>
                   支出与图表已汇总 <span className="font-medium text-[var(--color-text)]">家庭账本 + 您已关联的 {summary.linked_personal_in_cluster} 个个人子账本</span>
-                  ；月预算仍仅按家庭账本设定。
+                  ；本月总预算为各账本「月度总预算」之和（未设则为 0），与合并支出对比。
                 </>
               ) : (
                 <>已关联个人子账本；若刚完成关联，请刷新页面以更新汇总。</>
@@ -554,7 +586,11 @@ export default function Dashboard() {
           <CardHeader
             icon={<Receipt size={16} />}
             title="最近流水"
-            description="最新的 5 条记录"
+            description={
+              currentLedger.type === 'family' && (currentLedger.linked_personal?.length ?? 0) > 0
+                ? '含家庭账与已关联子账，最新 5 条'
+                : '最新的 5 条记录'
+            }
             action={
               <button
                 onClick={() => navigate('/transactions')}
@@ -575,6 +611,10 @@ export default function Dashboard() {
               <ul className="divide-y divide-[var(--color-border)]">
                 {recent.map((tx) => {
                   const cat = categoryMap[tx.category_id];
+                  const subName =
+                    tx.ledger_id && tx.ledger_id !== currentLedger.id
+                      ? ledgers.find((l) => l.id === tx.ledger_id)?.name
+                      : null;
                   return (
                     <li
                       key={tx.id}
@@ -584,6 +624,11 @@ export default function Dashboard() {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm text-[var(--color-text)] truncate">
                           {cat?.name || '未分类'}
+                          {subName && (
+                            <span className="ml-1.5 text-[10px] text-[var(--color-brand)] font-normal">
+                              · {subName}
+                            </span>
+                          )}
                           {tx.note && <span className="text-[var(--color-text-subtle)] ml-1.5 text-xs">· {tx.note}</span>}
                         </p>
                         <p className="text-[11px] text-[var(--color-text-subtle)] font-tabular mt-0.5">
@@ -612,7 +657,7 @@ export default function Dashboard() {
           ledgerId={currentLedger.id}
           currentBudget={budget}
           onClose={() => setShowBudget(false)}
-          onSuccess={() => load(currentLedger.id)}
+          onSuccess={() => load(currentLedger)}
         />
       )}
     </div>

@@ -287,13 +287,36 @@ func CreateTransaction(c *gin.Context) {
 }
 
 func GetTransactions(c *gin.Context) {
-	ledgerID := c.Query("ledger_id")
-	if ledgerID == "" {
+	userID, err := currentUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid session"})
+		return
+	}
+	ledgerIDStr := c.Query("ledger_id")
+	if ledgerIDStr == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "ledger_id is required"})
 		return
 	}
+	parsed, err := uuid.Parse(ledgerIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ledger_id"})
+		return
+	}
+	if !userCanAccessLedger(userID, parsed) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "no access to this ledger"})
+		return
+	}
 
-	query := service.DB.Model(&models.Transaction{}).Where("ledger_id = ?", ledgerID)
+	ledgerIDs := []uuid.UUID{parsed}
+	strict := c.Query("strict_ledger") == "1" || c.Query("strict_ledger") == "true"
+	if !strict {
+		var fam models.Ledger
+		if err := service.DB.First(&fam, "id = ?", parsed).Error; err == nil && fam.Type == "family" {
+			ledgerIDs = expandUserAccessibleFamilyCluster(userID, parsed)
+		}
+	}
+
+	query := service.DB.Model(&models.Transaction{}).Where("ledger_id IN ?", ledgerIDs)
 
 	if t := c.Query("type"); t != "" {
 		query = query.Where("type = ?", t)
@@ -590,10 +613,10 @@ func userLedgerIDs(userID uuid.UUID) []uuid.UUID {
 //	year_month=YYYY-MM          - specific month, overrides default current month
 //	year=YYYY                   - specific year, overrides default current year
 //
-// When ledger_id is a family ledger, expenses aggregate across that ledger plus any
-// linked personal sub-ledgers the user can access; monthly total_budget still uses
-// only the family ledger's budget row. Response fields includes_linked_personal /
-// linked_personal_in_cluster describe this mode.
+// When ledger_id is a family ledger, expenses and monthly ledger_total budgets both
+// aggregate across that ledger plus linked personal sub-ledgers the user can access
+// (sum of each book's scope=ledger_total for the active month). Response fields
+// includes_linked_personal / linked_personal_in_cluster describe this mode.
 //
 // Response includes category_stats, project_stats and ledger_stats so the frontend
 // can switch dimension without a refetch.
@@ -676,7 +699,8 @@ func GetDashboardSummary(c *gin.Context) {
 			if err := service.DB.First(&fam, "id = ?", ledgerIDs[0]).Error; err == nil && fam.Type == "family" {
 				ledgerIDs = expandUserAccessibleFamilyCluster(userID, ledgerIDs[0])
 				if len(ledgerIDs) > 1 {
-					budgetLedgerIDs = []uuid.UUID{ledgerIDs[0]}
+					// Same IDs as expense cluster: sum ledger_total budgets on family + each linked personal.
+					budgetLedgerIDs = ledgerIDs
 					includesLinkedPersonal = true
 					linkedPersonalInCluster = len(ledgerIDs) - 1
 				}

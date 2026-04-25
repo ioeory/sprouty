@@ -35,6 +35,7 @@ interface Transaction {
   tag_refs?: TxTag[]; // structured tag list populated by the backend
   project_id?: string | null;
   date: string;
+  ledger_id?: string;
 }
 
 interface Category {
@@ -70,8 +71,22 @@ function fmtDateHeader(key: string): string {
 
 const PAGE_SIZE = 50;
 
+function mergeCategoriesById(lists: Category[][]): Category[] {
+  const out: Category[] = [];
+  const seen = new Set<string>();
+  for (const list of lists) {
+    for (const c of list) {
+      if (!seen.has(c.id)) {
+        seen.add(c.id);
+        out.push(c);
+      }
+    }
+  }
+  return out;
+}
+
 export default function Transactions() {
-  const { currentLedger } = useLayout();
+  const { currentLedger, ledgers } = useLayout();
   const [txs, setTxs] = useState<Transaction[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -102,10 +117,15 @@ export default function Transactions() {
     return () => clearTimeout(t);
   }, [search]);
 
-  const loadCategories = async (ledgerId: string) => {
+  const loadCategories = async () => {
+    if (!currentLedger) return;
     try {
-      const res = await api.get(`/categories?ledger_id=${ledgerId}`);
-      setCategories(res.data || []);
+      const cluster =
+        currentLedger.type === 'family'
+          ? [currentLedger.id, ...(currentLedger.linked_personal || []).map((p) => p.id)]
+          : [currentLedger.id];
+      const results = await Promise.all(cluster.map((id) => api.get(`/categories?ledger_id=${id}`)));
+      setCategories(mergeCategoriesById(results.map((r) => r.data || [])));
     } catch (err) {
       console.error('Failed to load categories', err);
     }
@@ -144,11 +164,13 @@ export default function Transactions() {
     }
   };
 
+  const linkedKey = currentLedger?.linked_personal?.map((p) => p.id).join(',') ?? '';
+
   useEffect(() => {
     if (currentLedger) {
-      loadCategories(currentLedger.id);
+      void loadCategories();
     }
-  }, [currentLedger?.id]);
+  }, [currentLedger?.id, currentLedger?.type, linkedKey]);
 
   useEffect(() => {
     if (currentLedger) {
@@ -209,6 +231,9 @@ export default function Transactions() {
         <div>
           <p className="text-xs text-[var(--color-text-subtle)] uppercase tracking-widest">
             {currentLedger.name}
+            {currentLedger.type === 'family' && (currentLedger.linked_personal?.length ?? 0) > 0 && (
+              <span className="normal-case text-[var(--color-text-muted)]"> · 含关联子账流水</span>
+            )}
           </p>
           <h1 className="text-xl font-semibold text-[var(--color-text)] mt-1">流水记录</h1>
         </div>
@@ -340,6 +365,10 @@ export default function Transactions() {
                   <ul className="divide-y divide-[var(--color-border)]">
                     {list.map((tx) => {
                       const cat = categoryMap[tx.category_id];
+                      const subName =
+                        tx.ledger_id && tx.ledger_id !== currentLedger.id
+                          ? ledgers.find((l) => l.id === tx.ledger_id)?.name
+                          : null;
                       return (
                         <li
                           key={tx.id}
@@ -349,6 +378,9 @@ export default function Transactions() {
                           <div className="flex-1 min-w-0">
                             <p className="text-sm text-[var(--color-text)] truncate flex items-center gap-1.5">
                               {cat?.name || '未分类'}
+                              {subName && (
+                                <span className="text-[10px] text-[var(--color-brand)] shrink-0">· {subName}</span>
+                              )}
                               {tx.type === 'income' ? (
                                 <ArrowUp size={12} className="text-[var(--color-success)]" />
                               ) : (
