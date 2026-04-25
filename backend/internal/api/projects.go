@@ -13,9 +13,10 @@ import (
 
 // projectBudgetInfo describes the currently effective budget for a project.
 type projectBudgetInfo struct {
-	Mode      string  `json:"mode"`       // "none" | "total" | "monthly"
-	Amount    float64 `json:"amount"`     // 0 when mode=none
-	YearMonth string  `json:"year_month"` // only when mode=monthly
+	Mode      string    `json:"mode"`                 // "none" | "total" | "monthly"
+	Amount    float64   `json:"amount"`               // 0 when mode=none
+	YearMonth string    `json:"year_month,omitempty"` // only when mode=monthly
+	LedgerID  uuid.UUID `json:"ledger_id,omitempty"`  // spending counted toward this budget cap
 }
 
 type projectSummaryOut struct {
@@ -41,6 +42,32 @@ func currentYearMonth() string {
 	return time.Now().Format("2006-01")
 }
 
+func sumProjectExpenseInLedger(projectID, ledgerID uuid.UUID, from, to *time.Time) float64 {
+	q := service.DB.Model(&models.Transaction{}).
+		Where("project_id = ? AND ledger_id = ? AND type = ?", projectID, ledgerID, "expense")
+	if from != nil {
+		q = q.Where("date >= ?", *from)
+	}
+	if to != nil {
+		q = q.Where("date <= ?", *to)
+	}
+	var s float64
+	q.Select("COALESCE(SUM(amount),0)").Scan(&s)
+	return s
+}
+
+// resolveBudgetLedgerID picks which ledger_id is stored on the budget row:
+// explicit request wins; else keep existing row's ledger; else project's ledger.
+func resolveBudgetLedgerID(p *models.Project, requested uuid.UUID, existing *models.Budget) uuid.UUID {
+	if requested != uuid.Nil {
+		return requested
+	}
+	if existing != nil && existing.LedgerID != uuid.Nil {
+		return existing.LedgerID
+	}
+	return p.LedgerID
+}
+
 // buildProjectSummary computes the effective budget + spent numbers for a project.
 func buildProjectSummary(p *models.Project) projectSummaryOut {
 	out := projectSummaryOut{
@@ -57,7 +84,6 @@ func buildProjectSummary(p *models.Project) projectSummaryOut {
 		Budget:    projectBudgetInfo{Mode: "none"},
 	}
 
-	// Lifetime total
 	service.DB.Model(&models.Transaction{}).
 		Where("project_id = ? AND type = 'expense'", p.ID).
 		Select("COALESCE(SUM(amount), 0)").
@@ -69,8 +95,8 @@ func buildProjectSummary(p *models.Project) projectSummaryOut {
 		if err := service.DB.
 			Where("project_id = ? AND scope = 'project_total'", p.ID).
 			First(&b).Error; err == nil {
-			out.Budget = projectBudgetInfo{Mode: "total", Amount: b.Amount}
-			out.Spent = out.SpentTotal
+			out.Budget = projectBudgetInfo{Mode: "total", Amount: b.Amount, LedgerID: b.LedgerID}
+			out.Spent = sumProjectExpenseInLedger(p.ID, b.LedgerID, nil, nil)
 		}
 	case "monthly":
 		ym := currentYearMonth()
@@ -78,16 +104,13 @@ func buildProjectSummary(p *models.Project) projectSummaryOut {
 		if err := service.DB.
 			Where("project_id = ? AND scope = 'project_monthly' AND year_month = ?", p.ID, ym).
 			First(&b).Error; err == nil {
-			out.Budget = projectBudgetInfo{Mode: "monthly", Amount: b.Amount, YearMonth: ym}
-			// Spent this month
+			out.Budget = projectBudgetInfo{Mode: "monthly", Amount: b.Amount, YearMonth: ym, LedgerID: b.LedgerID}
 			firstOf, lastOf := monthRange(time.Now())
-			service.DB.Model(&models.Transaction{}).
-				Where("project_id = ? AND type = 'expense' AND date >= ? AND date <= ?", p.ID, firstOf, lastOf).
-				Select("COALESCE(SUM(amount), 0)").
-				Scan(&out.Spent)
+			out.Spent = sumProjectExpenseInLedger(p.ID, b.LedgerID, &firstOf, &lastOf)
 		} else {
-			// mode declared monthly but no row for this month yet
-			out.Budget = projectBudgetInfo{Mode: "monthly", Amount: 0, YearMonth: ym}
+			out.Budget = projectBudgetInfo{Mode: "monthly", Amount: 0, YearMonth: ym, LedgerID: p.LedgerID}
+			firstOf, lastOf := monthRange(time.Now())
+			out.Spent = sumProjectExpenseInLedger(p.ID, p.LedgerID, &firstOf, &lastOf)
 		}
 	default:
 		out.Spent = out.SpentTotal
@@ -144,17 +167,18 @@ func ListProjects(c *gin.Context) {
 }
 
 type projectUpsertReq struct {
-	Name         string     `json:"name" binding:"required"`
-	LedgerID     uuid.UUID  `json:"ledger_id" binding:"required"`
-	Icon         string     `json:"icon"`
-	Color        string     `json:"color"`
-	Note         string     `json:"note"`
-	Status       string     `json:"status"`
-	StartDate    *time.Time `json:"start_date"`
-	EndDate      *time.Time `json:"end_date"`
-	BudgetMode   string     `json:"budget_mode"`   // none|total|monthly
-	BudgetAmount float64    `json:"budget_amount"`
-	YearMonth    string     `json:"year_month"`
+	Name             string     `json:"name" binding:"required"`
+	LedgerID         uuid.UUID  `json:"ledger_id" binding:"required"`
+	Icon             string     `json:"icon"`
+	Color            string     `json:"color"`
+	Note             string     `json:"note"`
+	Status           string     `json:"status"`
+	StartDate        *time.Time `json:"start_date"`
+	EndDate          *time.Time `json:"end_date"`
+	BudgetMode       string     `json:"budget_mode"` // none|total|monthly
+	BudgetAmount     float64    `json:"budget_amount"`
+	YearMonth        string     `json:"year_month"`
+	BudgetLedgerID   *uuid.UUID `json:"budget_ledger_id"` // optional; which ledger counts toward project budget
 }
 
 // CreateProject POST /api/projects
@@ -173,11 +197,22 @@ func CreateProject(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "no access to this ledger"})
 		return
 	}
+	if req.BudgetLedgerID != nil && *req.BudgetLedgerID != uuid.Nil {
+		if !userCanAccessLedger(userID, *req.BudgetLedgerID) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "no access to budget ledger"})
+			return
+		}
+	}
 	if req.Status == "" {
 		req.Status = "active"
 	}
 	if req.BudgetMode == "" {
 		req.BudgetMode = "none"
+	}
+
+	budgetReqLeg := uuid.Nil
+	if req.BudgetLedgerID != nil {
+		budgetReqLeg = *req.BudgetLedgerID
 	}
 
 	p := models.Project{
@@ -196,7 +231,7 @@ func CreateProject(c *gin.Context) {
 		if err := tx.Create(&p).Error; err != nil {
 			return err
 		}
-		return upsertProjectBudgetTx(tx, &p, req.BudgetMode, req.BudgetAmount, req.YearMonth)
+		return upsertProjectBudgetTx(tx, &p, req.BudgetMode, req.BudgetAmount, req.YearMonth, budgetReqLeg)
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create project: " + err.Error()})
@@ -338,12 +373,14 @@ func GetProjectSummary(c *gin.Context) {
 		Color string  `json:"color"`
 	}
 	catStats := []CatStat{}
-	service.DB.Model(&models.Transaction{}).
+	catQ := service.DB.Model(&models.Transaction{}).
 		Select("categories.name as name, SUM(transactions.amount) as value, categories.color as color").
 		Joins("JOIN categories ON transactions.category_id = categories.id").
-		Where("transactions.project_id = ? AND transactions.type = 'expense'", p.ID).
-		Group("categories.name, categories.color").
-		Scan(&catStats)
+		Where("transactions.project_id = ? AND transactions.type = 'expense'", p.ID)
+	if sum.Budget.Mode != "none" && sum.Budget.LedgerID != uuid.Nil {
+		catQ = catQ.Where("transactions.ledger_id = ?", sum.Budget.LedgerID)
+	}
+	catQ.Group("categories.name, categories.color").Scan(&catStats)
 
 	c.JSON(http.StatusOK, gin.H{
 		"project":        sum,
@@ -375,17 +412,26 @@ func UpdateProjectBudget(c *gin.Context) {
 	}
 
 	var req struct {
-		Mode      string  `json:"mode" binding:"required"` // none | total | monthly
-		Amount    float64 `json:"amount"`
-		YearMonth string  `json:"year_month"`
+		Mode      string     `json:"mode" binding:"required"` // none | total | monthly
+		Amount    float64    `json:"amount"`
+		YearMonth string     `json:"year_month"`
+		LedgerID  *uuid.UUID `json:"ledger_id"` // optional: ledger whose expenses count toward this budget
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	budgetReqLeg := uuid.Nil
+	if req.LedgerID != nil && *req.LedgerID != uuid.Nil {
+		if !userCanAccessLedger(userID, *req.LedgerID) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "no access to budget ledger"})
+			return
+		}
+		budgetReqLeg = *req.LedgerID
+	}
 
 	err = service.DB.Transaction(func(tx *gorm.DB) error {
-		return upsertProjectBudgetTx(tx, &p, req.Mode, req.Amount, req.YearMonth)
+		return upsertProjectBudgetTx(tx, &p, req.Mode, req.Amount, req.YearMonth, budgetReqLeg)
 	})
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -433,7 +479,8 @@ func DeleteProjectBudget(c *gin.Context) {
 
 // upsertProjectBudgetTx writes/updates/clears the Budget row for a project and keeps
 // project.BudgetMode in sync. Caller must run inside a transaction.
-func upsertProjectBudgetTx(tx *gorm.DB, p *models.Project, mode string, amount float64, yearMonth string) error {
+// budgetLedger is optional (uuid.Nil = use existing row's ledger or project's ledger).
+func upsertProjectBudgetTx(tx *gorm.DB, p *models.Project, mode string, amount float64, yearMonth string, budgetLedger uuid.UUID) error {
 	switch mode {
 	case "", "none":
 		if err := tx.Where("project_id = ?", p.ID).Delete(&models.Budget{}).Error; err != nil {
@@ -446,20 +493,26 @@ func upsertProjectBudgetTx(tx *gorm.DB, p *models.Project, mode string, amount f
 		if amount < 0 {
 			return gin.Error{Err: errInvalid("amount must be >= 0"), Type: gin.ErrorTypePublic}
 		}
-		// clear any monthly rows first
 		if err := tx.Where("project_id = ? AND scope = 'project_monthly'", p.ID).Delete(&models.Budget{}).Error; err != nil {
 			return err
 		}
 		var existing models.Budget
-		if err := tx.Where("project_id = ? AND scope = 'project_total'", p.ID).First(&existing).Error; err == nil {
+		qErr := tx.Where("project_id = ? AND scope = 'project_total'", p.ID).First(&existing).Error
+		var existingPtr *models.Budget
+		if qErr == nil {
+			existingPtr = &existing
+		}
+		leg := resolveBudgetLedgerID(p, budgetLedger, existingPtr)
+		if qErr == nil {
 			existing.Amount = amount
 			existing.YearMonth = ""
+			existing.LedgerID = leg
 			if err := tx.Save(&existing).Error; err != nil {
 				return err
 			}
 		} else {
 			b := models.Budget{
-				LedgerID:  p.LedgerID,
+				LedgerID:  leg,
 				ProjectID: &p.ID,
 				Amount:    amount,
 				Scope:     "project_total",
@@ -479,21 +532,27 @@ func upsertProjectBudgetTx(tx *gorm.DB, p *models.Project, mode string, amount f
 		if ym == "" {
 			ym = currentYearMonth()
 		}
-		// clear any total rows first
 		if err := tx.Where("project_id = ? AND scope = 'project_total'", p.ID).Delete(&models.Budget{}).Error; err != nil {
 			return err
 		}
 		var existing models.Budget
-		if err := tx.
+		qErr := tx.
 			Where("project_id = ? AND scope = 'project_monthly' AND year_month = ?", p.ID, ym).
-			First(&existing).Error; err == nil {
+			First(&existing).Error
+		var existingPtr *models.Budget
+		if qErr == nil {
+			existingPtr = &existing
+		}
+		leg := resolveBudgetLedgerID(p, budgetLedger, existingPtr)
+		if qErr == nil {
 			existing.Amount = amount
+			existing.LedgerID = leg
 			if err := tx.Save(&existing).Error; err != nil {
 				return err
 			}
 		} else {
 			b := models.Budget{
-				LedgerID:  p.LedgerID,
+				LedgerID:  leg,
 				ProjectID: &p.ID,
 				Amount:    amount,
 				YearMonth: ym,

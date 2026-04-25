@@ -23,6 +23,7 @@ import {
 } from '../components/ui';
 import { useLayout } from '../components/AppLayout';
 import LedgerKeywordsEditor from '../components/LedgerKeywordsEditor';
+import { copyToClipboard } from '../lib/copyToClipboard';
 
 interface Member {
   id: string;
@@ -83,10 +84,14 @@ export default function Members() {
     }
   };
 
-  const copyInvite = () => {
-    navigator.clipboard.writeText(inviteCode);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const copyInvite = async () => {
+    const ok = await copyToClipboard(inviteCode);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } else {
+      setError('当前环境无法自动复制，请手动复制邀请码');
+    }
   };
 
   const confirmRemove = async () => {

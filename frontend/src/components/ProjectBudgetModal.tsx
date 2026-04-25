@@ -1,15 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { Wallet, Trash2 } from 'lucide-react';
 import api from '../api/client';
-import { Modal, Button, cn } from './ui';
+import { Modal, Button, Select, cn } from './ui';
 
 export interface ProjectBudgetInitial {
   id: string;
   name: string;
+  ledger_id: string;
   budget?: {
     mode: 'none' | 'total' | 'monthly';
     amount: number;
     year_month?: string;
+    ledger_id?: string;
   };
 }
 
@@ -35,8 +37,23 @@ export default function ProjectBudgetModal({ open, project, onClose, onSuccess }
   const [yearMonth, setYearMonth] = useState(
     project.budget?.year_month || new Date().toISOString().slice(0, 7),
   );
+  const [budgetLedgerId, setBudgetLedgerId] = useState(
+    project.budget?.ledger_id || project.ledger_id || '',
+  );
+  const [ledgers, setLedgers] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!open) return;
+    void api
+      .get('/ledgers')
+      .then((res) => {
+        const list = Array.isArray(res.data) ? res.data : [];
+        setLedgers(list.map((l: { id: string; name: string }) => ({ id: l.id, name: l.name })));
+      })
+      .catch(() => setLedgers([]));
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -44,8 +61,9 @@ export default function ProjectBudgetModal({ open, project, onClose, onSuccess }
     setMode(m);
     setAmount(project.budget && m !== 'none' ? String(project.budget.amount || '') : '');
     setYearMonth(project.budget?.year_month || new Date().toISOString().slice(0, 7));
+    setBudgetLedgerId(project.budget?.ledger_id || project.ledger_id || '');
     setError('');
-  }, [open, project.id]);
+  }, [open, project.id, project.ledger_id, project.budget?.ledger_id, project.budget?.mode]);
 
   const handleSave = async () => {
     setLoading(true);
@@ -54,7 +72,11 @@ export default function ProjectBudgetModal({ open, project, onClose, onSuccess }
       if (mode === 'none') {
         await api.delete(`/projects/${project.id}/budget`);
       } else {
-        const payload: Record<string, unknown> = { mode, amount: parseFloat(amount) || 0 };
+        const payload: Record<string, unknown> = {
+          mode,
+          amount: parseFloat(amount) || 0,
+          ledger_id: budgetLedgerId || project.ledger_id,
+        };
         if (mode === 'monthly') payload.year_month = yearMonth;
         await api.put(`/projects/${project.id}/budget`, payload);
       }
@@ -105,6 +127,19 @@ export default function ProjectBudgetModal({ open, project, onClose, onSuccess }
 
         {mode !== 'none' && (
           <div className="space-y-3">
+            <Select
+              label="预算统计账本"
+              hint="仅统计该账本下、关联本项目的支出，用于对比预算上限"
+              value={budgetLedgerId}
+              onChange={(e) => setBudgetLedgerId(e.target.value)}
+            >
+              {ledgers.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </Select>
+
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-[var(--color-text-muted)] flex items-center gap-1.5">
                 <Wallet size={12} /> 金额

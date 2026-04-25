@@ -33,7 +33,12 @@ interface ProjectSummary {
   ledger_id: string;
   start_date?: string | null;
   end_date?: string | null;
-  budget: { mode: 'none' | 'total' | 'monthly'; amount: number; year_month?: string };
+  budget: {
+    mode: 'none' | 'total' | 'monthly';
+    amount: number;
+    year_month?: string;
+    ledger_id?: string;
+  };
   spent: number;
   spent_total: number;
   remaining: number;
@@ -88,10 +93,15 @@ export default function ProjectDetail() {
       setSummary(data.project);
       setCatStats(data.category_stats || []);
 
-      // Load project transactions separately (use ledger_id from project and filter by project_id in memory for now)
-      if (data.project?.ledger_id) {
+      // Prefer the ledger used for budget burn-down when set; else project's home ledger
+      const proj = data.project as ProjectSummary;
+      const ledgerForTx =
+        proj.budget?.mode !== 'none' && proj.budget?.ledger_id
+          ? proj.budget.ledger_id
+          : proj.ledger_id;
+      if (ledgerForTx) {
         const listRes = await api.get(`/transactions`, {
-          params: { ledger_id: data.project.ledger_id, limit: 200 },
+          params: { ledger_id: ledgerForTx, limit: 200 },
         });
         const items = Array.isArray(listRes.data) ? listRes.data : listRes.data?.items || [];
         const related = items.filter((t: any) => t.project_id === id);
@@ -249,7 +259,17 @@ export default function ProjectDetail() {
       {/* Chart + recent */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
         <Card className="lg:col-span-3" padding="lg">
-          <CardHeader icon={<PieChartIcon size={16} />} title="分类分布" description="累计按分类的支出结构" />
+          <CardHeader
+            icon={<PieChartIcon size={16} />}
+            title="分类分布"
+            description={
+              summary.budget.mode !== 'none' &&
+              summary.budget.ledger_id &&
+              summary.budget.ledger_id !== summary.ledger_id
+                ? '按预算设置中所选账本的支出结构'
+                : '累计按分类的支出结构'
+            }
+          />
           <div className="mt-4">
             <SpendingChart
               data={catStats}

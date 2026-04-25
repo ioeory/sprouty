@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Bot, MessageSquare, Copy, CheckCircle, Smartphone, RefreshCw } from 'lucide-react';
 import api from '../api/client';
+import { copyToClipboard } from '../lib/copyToClipboard';
 import { Button, Modal, Badge } from './ui';
 
 interface Props {
@@ -24,6 +25,7 @@ const BotIntegrationModal: React.FC<Props> = ({ open, onClose }) => {
   const [pin, setPin] = useState<string | null>(null);
   const [botUsername, setBotUsername] = useState<string>('');
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
 
   useEffect(() => {
     if (open) fetchStatus();
@@ -51,10 +53,16 @@ const BotIntegrationModal: React.FC<Props> = ({ open, onClose }) => {
     }
   };
 
-  const copyCommand = () => {
-    navigator.clipboard.writeText(`/bind ${pin}`);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const copyCommand = async () => {
+    if (!pin) return;
+    setCopyFailed(false);
+    const ok = await copyToClipboard(`/bind ${pin}`);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } else {
+      setCopyFailed(true);
+    }
   };
 
   const tgUrl = botUsername
@@ -143,6 +151,11 @@ const BotIntegrationModal: React.FC<Props> = ({ open, onClose }) => {
               <p className="text-[11px] text-[var(--color-text-subtle)]">
                 粘贴发送 <code className="px-1 py-0.5 rounded bg-[var(--color-surface-muted)] font-mono">/bind {pin}</code> 即可完成绑定
               </p>
+              {copyFailed && (
+                <p className="text-[11px] text-[var(--color-danger)]">
+                  无法自动复制（例如非 HTTPS 访问）。请手动复制上方命令发送给机器人。
+                </p>
+              )}
             </div>
 
             <Button variant="ghost" fullWidth leftIcon={<RefreshCw size={14} />} onClick={generatePin} loading={loading}>

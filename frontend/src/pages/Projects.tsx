@@ -41,6 +41,7 @@ interface ProjectSummary {
     mode: 'none' | 'total' | 'monthly';
     amount: number;
     year_month?: string;
+    ledger_id?: string;
   };
   spent: number;
   spent_total: number;
