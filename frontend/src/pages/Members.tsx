@@ -10,6 +10,7 @@ import {
   Loader2,
   Plus,
   Zap,
+  Link2,
 } from 'lucide-react';
 import api from '../api/client';
 import {
@@ -20,6 +21,7 @@ import {
   Input,
   Modal,
   Badge,
+  Select,
 } from '../components/ui';
 import { useLayout } from '../components/AppLayout';
 import LedgerKeywordsEditor from '../components/LedgerKeywordsEditor';
@@ -38,6 +40,20 @@ interface MembersResp {
   is_owner: boolean;
 }
 
+interface LinkedPersonalRow {
+  link_id: string;
+  ledger_id: string;
+  name: string;
+  owner_id: string;
+  owner_label: string;
+  can_unlink: boolean;
+}
+
+interface FamilyLinksState {
+  linked: LinkedPersonalRow[];
+  candidates: { id: string; name: string }[];
+}
+
 export default function Members() {
   const { currentLedger, refreshLedgers } = useLayout();
   const [data, setData] = useState<MembersResp | null>(null);
@@ -50,6 +66,26 @@ export default function Members() {
   const [removing, setRemoving] = useState<Member | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState('');
+  const [familyLinks, setFamilyLinks] = useState<FamilyLinksState | null>(null);
+  const [linksLoading, setLinksLoading] = useState(false);
+  const [linkPick, setLinkPick] = useState('');
+  const [linkBusy, setLinkBusy] = useState(false);
+
+  const loadFamilyLinks = async (ledgerId: string) => {
+    setLinksLoading(true);
+    try {
+      const res = await api.get(`/ledgers/${ledgerId}/linked-personal`);
+      setFamilyLinks({
+        linked: res.data?.linked || [],
+        candidates: res.data?.candidates || [],
+      });
+      setLinkPick('');
+    } catch {
+      setFamilyLinks(null);
+    } finally {
+      setLinksLoading(false);
+    }
+  };
 
   const load = async (ledgerId: string) => {
     setLoading(true);
@@ -67,8 +103,45 @@ export default function Members() {
     if (currentLedger) {
       setInviteCode('');
       load(currentLedger.id);
+      if (currentLedger.type === 'family') {
+        void loadFamilyLinks(currentLedger.id);
+      } else {
+        setFamilyLinks(null);
+      }
     }
-  }, [currentLedger?.id]);
+  }, [currentLedger?.id, currentLedger?.type]);
+
+  const addFamilyLink = async () => {
+    if (!currentLedger || !linkPick) return;
+    setLinkBusy(true);
+    setError('');
+    try {
+      await api.post(`/ledgers/${currentLedger.id}/linked-personal`, {
+        personal_ledger_id: linkPick,
+      });
+      await loadFamilyLinks(currentLedger.id);
+      await refreshLedgers();
+    } catch (err: any) {
+      setError(err.response?.data?.error || '关联失败');
+    } finally {
+      setLinkBusy(false);
+    }
+  };
+
+  const removeFamilyLink = async (personalLedgerId: string) => {
+    if (!currentLedger) return;
+    setLinkBusy(true);
+    setError('');
+    try {
+      await api.delete(`/ledgers/${currentLedger.id}/linked-personal/${personalLedgerId}`);
+      await loadFamilyLinks(currentLedger.id);
+      await refreshLedgers();
+    } catch (err: any) {
+      setError(err.response?.data?.error || '解除关联失败');
+    } finally {
+      setLinkBusy(false);
+    }
+  };
 
   const generateInvite = async () => {
     if (!currentLedger) return;
@@ -234,6 +307,76 @@ export default function Members() {
           </div>
         </Card>
       </div>
+
+      {currentLedger.type === 'family' && (
+        <Card padding="lg">
+          <CardHeader
+            icon={<Link2 size={16} />}
+            title="关联个人子账本"
+            description="将您名下的个人账本挂到本家庭账本，便于在家庭中对照「公账 / 私账」。每个个人账本只能关联一个家庭；解除后可换绑。"
+          />
+          <div className="mt-4 space-y-4">
+            {linksLoading ? (
+              <div className="flex items-center justify-center py-8 text-[var(--color-text-subtle)]">
+                <Loader2 className="animate-spin" size={18} />
+              </div>
+            ) : (
+              <>
+                {familyLinks?.linked?.length ? (
+                  <ul className="divide-y divide-[var(--color-border)] rounded-[var(--radius-md)] border border-[var(--color-border)]">
+                    {familyLinks.linked.map((row) => (
+                      <li key={row.link_id} className="flex items-center gap-3 px-3 py-2.5">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-[var(--color-text)] truncate">{row.name}</p>
+                          <p className="text-[11px] text-[var(--color-text-subtle)] truncate">
+                            所有者 · {row.owner_label}
+                          </p>
+                        </div>
+                        {row.can_unlink && (
+                          <button
+                            type="button"
+                            title="解除关联"
+                            disabled={linkBusy}
+                            onClick={() => removeFamilyLink(row.ledger_id)}
+                            className="shrink-0 w-8 h-8 flex items-center justify-center rounded-[var(--radius-md)] text-[var(--color-text-subtle)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] transition-colors"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-[var(--color-text-muted)]">暂无已关联的个人账本</p>
+                )}
+
+                {familyLinks && familyLinks.candidates.length > 0 && (
+                  <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
+                    <div className="flex-1 min-w-0">
+                      <Select
+                        label="添加我的个人账本"
+                        value={linkPick}
+                        onChange={(e) => setLinkPick(e.target.value)}
+                        hint="仅列出您拥有、且尚未关联到其他家庭的个人账本"
+                      >
+                        <option value="">请选择…</option>
+                        {familyLinks.candidates.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                    <Button size="sm" disabled={!linkPick || linkBusy} loading={linkBusy} onClick={addFamilyLink}>
+                      关联
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </Card>
+      )}
 
       {/* Quick-record ledger keywords (per-user, used by Telegram bot) */}
       <Card padding="lg">

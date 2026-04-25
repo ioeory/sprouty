@@ -42,6 +42,7 @@ func InitDB() {
 		&models.UserConnection{},
 		&models.BindingSession{},
 		&models.LedgerInvite{},
+		&models.LedgerFamilyLink{},
 		&models.Tag{},
 		&models.TransactionTag{},
 		&models.SystemSettings{},

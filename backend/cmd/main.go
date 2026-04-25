@@ -60,6 +60,9 @@ func main() {
 		protected.GET("/ledgers/:id/members", api.GetLedgerMembers)
 		protected.DELETE("/ledgers/:id/members/:userId", api.RemoveLedgerMember)
 		protected.POST("/ledgers/join", api.JoinLedger)
+		protected.GET("/ledgers/:id/linked-personal", api.GetLinkedPersonalLedgers)
+		protected.POST("/ledgers/:id/linked-personal", api.LinkPersonalLedger)
+		protected.DELETE("/ledgers/:id/linked-personal/:personalLedgerId", api.UnlinkPersonalLedger)
 
 		// Transaction routes
 		protected.GET("/transactions", api.GetTransactions)

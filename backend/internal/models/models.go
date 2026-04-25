@@ -91,6 +91,25 @@ type Ledger struct {
 	Members []User    `gorm:"many2many:ledger_users;" json:"members"`
 }
 
+// LedgerFamilyLink binds one personal ledger as a sub-ledger under a family ledger.
+// Each personal ledger may link to at most one family (enforced by unique index + API).
+type LedgerFamilyLink struct {
+	ID               uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
+	CreatedAt        time.Time `json:"created_at"`
+	FamilyLedgerID   uuid.UUID `gorm:"type:uuid;not null;index" json:"family_ledger_id"`
+	PersonalLedgerID uuid.UUID `gorm:"type:uuid;not null;uniqueIndex:uq_ledger_family_link_personal" json:"personal_ledger_id"`
+	LinkedByUserID   uuid.UUID `gorm:"type:uuid;not null" json:"linked_by_user_id"`
+}
+
+func (LedgerFamilyLink) TableName() string { return "ledger_family_links" }
+
+func (l *LedgerFamilyLink) BeforeCreate(tx *gorm.DB) error {
+	if l.ID == uuid.Nil {
+		l.ID = uuid.New()
+	}
+	return nil
+}
+
 // Category
 type Category struct {
 	Base

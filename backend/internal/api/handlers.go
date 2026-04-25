@@ -31,6 +31,42 @@ func GetLedgers(c *gin.Context) {
 		kwByLedger[k.LedgerID] = append(kwByLedger[k.LedgerID], gin.H{"id": k.ID, "keyword": k.Keyword})
 	}
 
+	familyIDs := make([]uuid.UUID, 0)
+	for _, l := range user.Ledgers {
+		if l.Type == "family" {
+			familyIDs = append(familyIDs, l.ID)
+		}
+	}
+	linkedByFamily := map[uuid.UUID][]gin.H{}
+	parentFamilyOfPersonal := map[uuid.UUID]uuid.UUID{}
+	if len(familyIDs) > 0 {
+		var links []models.LedgerFamilyLink
+		service.DB.Where("family_ledger_id IN ?", familyIDs).Find(&links)
+		if len(links) > 0 {
+			personalIDs := make([]uuid.UUID, 0, len(links))
+			for _, lk := range links {
+				personalIDs = append(personalIDs, lk.PersonalLedgerID)
+				parentFamilyOfPersonal[lk.PersonalLedgerID] = lk.FamilyLedgerID
+			}
+			var pls []models.Ledger
+			service.DB.Select("id", "name").Where("id IN ?", personalIDs).Find(&pls)
+			nameBy := map[uuid.UUID]string{}
+			for _, pl := range pls {
+				nameBy[pl.ID] = pl.Name
+			}
+			for _, lk := range links {
+				nm := nameBy[lk.PersonalLedgerID]
+				if nm == "" {
+					nm = "个人账本"
+				}
+				linkedByFamily[lk.FamilyLedgerID] = append(linkedByFamily[lk.FamilyLedgerID], gin.H{
+					"id":   lk.PersonalLedgerID,
+					"name": nm,
+				})
+			}
+		}
+	}
+
 	out := make([]gin.H, 0, len(user.Ledgers))
 	for _, l := range user.Ledgers {
 		kw := kwByLedger[l.ID]
@@ -39,7 +75,7 @@ func GetLedgers(c *gin.Context) {
 		}
 		var memberCount int64
 		service.DB.Model(&models.LedgerUser{}).Where("ledger_id = ?", l.ID).Count(&memberCount)
-		out = append(out, gin.H{
+		h := gin.H{
 			"id":           l.ID,
 			"name":         l.Name,
 			"owner_id":     l.OwnerID,
@@ -48,7 +84,18 @@ func GetLedgers(c *gin.Context) {
 			"created_at":   l.CreatedAt,
 			"updated_at":   l.UpdatedAt,
 			"keywords":     kw,
-		})
+		}
+		if l.Type == "family" {
+			if ch, ok := linkedByFamily[l.ID]; ok {
+				h["linked_personal"] = ch
+			} else {
+				h["linked_personal"] = []gin.H{}
+			}
+		}
+		if famID, ok := parentFamilyOfPersonal[l.ID]; ok {
+			h["parent_family_id"] = famID
+		}
+		out = append(out, h)
 	}
 	c.JSON(http.StatusOK, out)
 }
