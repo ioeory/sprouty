@@ -35,6 +35,8 @@ export interface Ledger {
   member_count?: number;
   /** Present on family ledgers: personal sub-ledgers linked under this home book */
   linked_personal?: LedgerLinkedPersonal[];
+  /** Total linked personal books for this family (all members); may exceed linked_personal length */
+  linked_personal_count?: number;
   /** When this personal ledger is linked to a family, the parent family ledger id */
   parent_family_id?: string;
 }

@@ -9,10 +9,12 @@ import (
 	"github.com/google/uuid"
 )
 
-// expandUserAccessibleFamilyCluster returns the family ledger plus any linked
-// personal ledgers the user may access (typically their own). Used for
-// dashboard aggregation when viewing a family ledger.
-func expandUserAccessibleFamilyCluster(userID, familyID uuid.UUID) []uuid.UUID {
+// expandFamilyLinkedCluster returns the family ledger plus every personal
+// ledger linked to it (ledger_family_links). Use only after the caller has
+// verified access to the family ledger: household members see one merged
+// transaction stream and stats, without needing write access to others'
+// personal books.
+func expandFamilyLinkedCluster(familyID uuid.UUID) []uuid.UUID {
 	var fam models.Ledger
 	if err := service.DB.First(&fam, "id = ?", familyID).Error; err != nil || fam.Type != "family" {
 		return []uuid.UUID{familyID}
@@ -21,9 +23,7 @@ func expandUserAccessibleFamilyCluster(userID, familyID uuid.UUID) []uuid.UUID {
 	var links []models.LedgerFamilyLink
 	service.DB.Where("family_ledger_id = ?", familyID).Find(&links)
 	for _, lk := range links {
-		if userCanAccessLedger(userID, lk.PersonalLedgerID) {
-			out = append(out, lk.PersonalLedgerID)
-		}
+		out = append(out, lk.PersonalLedgerID)
 	}
 	return out
 }

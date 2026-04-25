@@ -218,7 +218,10 @@ export default function Dashboard() {
     }
   };
 
-  const linkedKey = currentLedger?.linked_personal?.map((p) => p.id).join(',') ?? '';
+  const linkedKey = [
+    currentLedger?.linked_personal?.map((p) => p.id).join(',') ?? '',
+    currentLedger?.linked_personal_count ?? 0,
+  ].join('|');
 
   useEffect(() => {
     if (currentLedger) void load(currentLedger);
@@ -334,13 +337,13 @@ export default function Dashboard() {
 
       {scope === 'current' &&
         currentLedger.type === 'family' &&
-        (currentLedger.linked_personal?.length ?? 0) > 0 && (
+        ((currentLedger.linked_personal_count ?? 0) > 0 || (currentLedger.linked_personal?.length ?? 0) > 0) && (
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)]/60">
             <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
               {summary?.includes_linked_personal ? (
                 <>
-                  支出与图表已汇总 <span className="font-medium text-[var(--color-text)]">家庭账本 + 您已关联的 {summary.linked_personal_in_cluster} 个个人子账本</span>
-                  ；本月总预算为各账本「月度总预算」之和（未设则为 0），与合并支出对比。
+                  支出与图表已汇总 <span className="font-medium text-[var(--color-text)]">家庭账本 + 本家庭已关联的 {summary.linked_personal_in_cluster} 个个人子账本</span>
+                  （含其他成员关联账本的流水，无需打开对方子账即可查看）；本月总预算为各账本「月度总预算」之和（未设则为 0），与合并支出对比。
                 </>
               ) : (
                 <>已关联个人子账本；若刚完成关联，请刷新页面以更新汇总。</>
@@ -587,8 +590,9 @@ export default function Dashboard() {
             icon={<Receipt size={16} />}
             title="最近流水"
             description={
-              currentLedger.type === 'family' && (currentLedger.linked_personal?.length ?? 0) > 0
-                ? '含家庭账与已关联子账，最新 5 条'
+              currentLedger.type === 'family' &&
+              ((currentLedger.linked_personal_count ?? 0) > 0 || (currentLedger.linked_personal?.length ?? 0) > 0)
+                ? '含家庭账与本家庭全部已关联子账，最新 5 条'
                 : '最新的 5 条记录'
             }
             action={

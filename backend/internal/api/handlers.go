@@ -38,6 +38,7 @@ func GetLedgers(c *gin.Context) {
 		}
 	}
 	linkedByFamily := map[uuid.UUID][]gin.H{}
+	linkCountByFamily := map[uuid.UUID]int{}
 	parentFamilyOfPersonal := map[uuid.UUID]uuid.UUID{}
 	if len(familyIDs) > 0 {
 		var links []models.LedgerFamilyLink
@@ -47,6 +48,7 @@ func GetLedgers(c *gin.Context) {
 			for _, lk := range links {
 				personalIDs = append(personalIDs, lk.PersonalLedgerID)
 				parentFamilyOfPersonal[lk.PersonalLedgerID] = lk.FamilyLedgerID
+				linkCountByFamily[lk.FamilyLedgerID]++
 			}
 			var pls []models.Ledger
 			service.DB.Select("id", "name").Where("id IN ?", personalIDs).Find(&pls)
@@ -55,6 +57,11 @@ func GetLedgers(c *gin.Context) {
 				nameBy[pl.ID] = pl.Name
 			}
 			for _, lk := range links {
+				// Only expose sub-ledgers the current user may access; otherwise the SPA
+				// merges cluster IDs for /tags and /categories and gets 403 on others' books.
+				if !userCanAccessLedger(uid, lk.PersonalLedgerID) {
+					continue
+				}
 				nm := nameBy[lk.PersonalLedgerID]
 				if nm == "" {
 					nm = "个人账本"
@@ -91,6 +98,7 @@ func GetLedgers(c *gin.Context) {
 			} else {
 				h["linked_personal"] = []gin.H{}
 			}
+			h["linked_personal_count"] = linkCountByFamily[l.ID]
 		}
 		if famID, ok := parentFamilyOfPersonal[l.ID]; ok {
 			h["parent_family_id"] = famID
@@ -312,7 +320,7 @@ func GetTransactions(c *gin.Context) {
 	if !strict {
 		var fam models.Ledger
 		if err := service.DB.First(&fam, "id = ?", parsed).Error; err == nil && fam.Type == "family" {
-			ledgerIDs = expandUserAccessibleFamilyCluster(userID, parsed)
+			ledgerIDs = expandFamilyLinkedCluster(parsed)
 		}
 	}
 
@@ -614,7 +622,7 @@ func userLedgerIDs(userID uuid.UUID) []uuid.UUID {
 //	year=YYYY                   - specific year, overrides default current year
 //
 // When ledger_id is a family ledger, expenses and monthly ledger_total budgets both
-// aggregate across that ledger plus linked personal sub-ledgers the user can access
+// aggregate across that ledger plus every personal sub-ledger linked to the family
 // (sum of each book's scope=ledger_total for the active month). Response fields
 // includes_linked_personal / linked_personal_in_cluster describe this mode.
 //
@@ -697,7 +705,7 @@ func GetDashboardSummary(c *gin.Context) {
 		if len(ledgerIDs) == 1 {
 			var fam models.Ledger
 			if err := service.DB.First(&fam, "id = ?", ledgerIDs[0]).Error; err == nil && fam.Type == "family" {
-				ledgerIDs = expandUserAccessibleFamilyCluster(userID, ledgerIDs[0])
+				ledgerIDs = expandFamilyLinkedCluster(ledgerIDs[0])
 				if len(ledgerIDs) > 1 {
 					// Same IDs as expense cluster: sum ledger_total budgets on family + each linked personal.
 					budgetLedgerIDs = ledgerIDs

@@ -164,7 +164,10 @@ export default function Transactions() {
     }
   };
 
-  const linkedKey = currentLedger?.linked_personal?.map((p) => p.id).join(',') ?? '';
+  const linkedKey = [
+    currentLedger?.linked_personal?.map((p) => p.id).join(',') ?? '',
+    currentLedger?.linked_personal_count ?? 0,
+  ].join('|');
 
   useEffect(() => {
     if (currentLedger) {
@@ -231,8 +234,9 @@ export default function Transactions() {
         <div>
           <p className="text-xs text-[var(--color-text-subtle)] uppercase tracking-widest">
             {currentLedger.name}
-            {currentLedger.type === 'family' && (currentLedger.linked_personal?.length ?? 0) > 0 && (
-              <span className="normal-case text-[var(--color-text-muted)]"> · 含关联子账流水</span>
+            {currentLedger.type === 'family' &&
+              ((currentLedger.linked_personal_count ?? 0) > 0 || (currentLedger.linked_personal?.length ?? 0) > 0) && (
+              <span className="normal-case text-[var(--color-text-muted)]"> · 含本家庭已关联子账流水</span>
             )}
           </p>
           <h1 className="text-xl font-semibold text-[var(--color-text)] mt-1">流水记录</h1>
