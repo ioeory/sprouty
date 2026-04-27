@@ -232,8 +232,8 @@ func bootstrapPersonalLedgerForUser(tx *gorm.DB, userID uuid.UUID, ledger *model
 	return nil
 }
 
-// initDefaultCategoriesForLedger seeds six common categories along with a
-// curated keyword set used by the bot / quick-record parser.
+// initDefaultCategoriesForLedger seeds core system categories plus optional
+// expense categories (IsSystem=false, user-deletable) with keyword hints.
 func initDefaultCategoriesForLedger(tx *gorm.DB, ledgerID uuid.UUID) {
 	type seed struct {
 		name     string
@@ -241,32 +241,75 @@ func initDefaultCategoriesForLedger(tx *gorm.DB, ledgerID uuid.UUID) {
 		color    string
 		kind     string
 		sort     int
+		system   bool
 		keywords []string
 	}
 	defaults := []seed{
 		{
-			name: "餐饮", icon: "Utensils", color: "#FF6B6B", kind: "expense", sort: 10,
+			name: "餐饮", icon: "Utensils", color: "#FF6B6B", kind: "expense", sort: 10, system: true,
 			keywords: []string{"饭", "吃", "午饭", "晚饭", "早饭", "午餐", "晚餐", "早餐", "夜宵", "咖啡", "奶茶", "外卖", "聚餐", "火锅", "水果", "零食"},
 		},
 		{
-			name: "交通", icon: "Car", color: "#45B7D1", kind: "expense", sort: 20,
+			name: "交通", icon: "Car", color: "#45B7D1", kind: "expense", sort: 20, system: true,
 			keywords: []string{"打车", "出租", "滴滴", "地铁", "公交", "加油", "停车", "高铁", "火车", "飞机"},
 		},
 		{
-			name: "购物", icon: "ShoppingCart", color: "#96CEB4", kind: "expense", sort: 30,
-			keywords: []string{"衣服", "鞋", "包", "化妆品", "电器", "数码", "家具"},
+			// 「数码」单列为可选分类；购物里不再占「数码」关键字，避免同账本 (ledger_id, keyword) 唯一冲突
+			name: "购物", icon: "ShoppingCart", color: "#96CEB4", kind: "expense", sort: 30, system: true,
+			keywords: []string{"衣服", "鞋", "包", "化妆品", "电器", "家具", "百货"},
 		},
 		{
-			name: "日用", icon: "ShoppingBag", color: "#4ECDC4", kind: "expense", sort: 40,
+			name: "日用", icon: "ShoppingBag", color: "#4ECDC4", kind: "expense", sort: 40, system: true,
 			keywords: []string{"纸巾", "洗衣液", "牙膏", "日用品", "超市"},
 		},
 		{
-			name: "娱乐", icon: "Gamepad", color: "#FFEEAD", kind: "expense", sort: 50,
-			keywords: []string{"电影", "游戏", "KTV", "唱K", "演唱会", "旅游", "门票"},
+			name: "娱乐", icon: "Gamepad", color: "#FFEEAD", kind: "expense", sort: 50, system: true,
+			keywords: []string{"电影", "游戏", "KTV", "唱K", "演唱会", "门票", "游乐"},
 		},
 		{
-			name: "工资", icon: "Coins", color: "#FFAD60", kind: "income", sort: 60,
+			name: "工资", icon: "Coins", color: "#FFAD60", kind: "income", sort: 60, system: true,
 			keywords: []string{"薪水", "工资", "奖金", "年终奖", "报销"},
+		},
+		// 以下为可选默认支出分类（非系统分类，可删除）
+		{
+			name: "房租", icon: "Home", color: "#E17055", kind: "expense", sort: 70, system: false,
+			keywords: []string{"房租", "租金", "租房", "月租", "房东", "房贷"},
+		},
+		{
+			name: "水电", icon: "Zap", color: "#3498DB", kind: "expense", sort: 80, system: false,
+			keywords: []string{"水电", "电费", "水费", "燃气", "物业费", "暖气"},
+		},
+		{
+			name: "数码", icon: "Tv", color: "#9B59B6", kind: "expense", sort: 90, system: false,
+			keywords: []string{"数码", "手机", "电脑", "平板", "耳机", "笔记本", "显示器"},
+		},
+		{
+			name: "学习", icon: "BookOpen", color: "#1ABC9C", kind: "expense", sort: 100, system: false,
+			keywords: []string{"学习", "培训", "课程", "书", "教材", "学费", "考试", "网课"},
+		},
+		{
+			name: "通信", icon: "Wifi", color: "#2980B9", kind: "expense", sort: 110, system: false,
+			keywords: []string{"话费", "流量", "宽带", "套餐", "网费", "通讯", "手机费"},
+		},
+		{
+			name: "医疗", icon: "Stethoscope", color: "#E74C3C", kind: "expense", sort: 120, system: false,
+			keywords: []string{"医疗", "医院", "药店", "挂号", "体检", "药费", "牙科"},
+		},
+		{
+			name: "美容", icon: "Heart", color: "#E91E63", kind: "expense", sort: 130, system: false,
+			keywords: []string{"美容", "美发", "护肤", "美甲", "理发", "面膜"},
+		},
+		{
+			name: "保险", icon: "PiggyBank", color: "#34495E", kind: "expense", sort: 140, system: false,
+			keywords: []string{"保险", "保费", "车险", "医疗险", "人寿"},
+		},
+		{
+			name: "社交", icon: "Gift", color: "#16A085", kind: "expense", sort: 150, system: false,
+			keywords: []string{"人情", "礼金", "红包", "请客", "聚会", "应酬"},
+		},
+		{
+			name: "旅游住宿", icon: "Plane", color: "#D35400", kind: "expense", sort: 160, system: false,
+			keywords: []string{"旅游", "酒店", "民宿", "住宿", "机票", "差旅", "客栈"},
 		},
 	}
 
@@ -276,7 +319,7 @@ func initDefaultCategoriesForLedger(tx *gorm.DB, ledgerID uuid.UUID) {
 			Icon:      s.icon,
 			Color:     s.color,
 			Type:      s.kind,
-			IsSystem:  true,
+			IsSystem:  s.system,
 			LedgerID:  ledgerID,
 			SortOrder: s.sort,
 		}
@@ -284,10 +327,14 @@ func initDefaultCategoriesForLedger(tx *gorm.DB, ledgerID uuid.UUID) {
 			continue
 		}
 		for _, k := range s.keywords {
-			tx.Create(&models.CategoryKeyword{
+			kw := strings.ToLower(strings.TrimSpace(k))
+			if kw == "" {
+				continue
+			}
+			tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&models.CategoryKeyword{
 				CategoryID: cat.ID,
 				LedgerID:   ledgerID,
-				Keyword:    strings.ToLower(strings.TrimSpace(k)),
+				Keyword:    kw,
 			})
 		}
 	}

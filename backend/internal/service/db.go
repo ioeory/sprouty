@@ -60,6 +60,7 @@ func InitDB() {
 	ensureKeywordIndexes()
 	ensureOIDCUserIndexes()
 	backfillCategoryDefaults()
+	backfillOptionalExpenseCategories()
 	ensureSystemSettingsRow()
 	ensureRegistrationOpenWhenNoUsers()
 	backfillSingleUserAdmin()
@@ -248,9 +249,9 @@ func backfillCategoryDefaults() {
 	seeds := []defaults{
 		{"餐饮", 10, []string{"饭", "吃", "午饭", "晚饭", "早饭", "午餐", "晚餐", "早餐", "夜宵", "咖啡", "奶茶", "外卖", "聚餐", "火锅", "水果", "零食"}},
 		{"交通", 20, []string{"打车", "出租", "滴滴", "地铁", "公交", "加油", "停车", "高铁", "火车", "飞机"}},
-		{"购物", 30, []string{"衣服", "鞋", "包", "化妆品", "电器", "数码", "家具"}},
+		{"购物", 30, []string{"衣服", "鞋", "包", "化妆品", "电器", "家具", "百货"}},
 		{"日用", 40, []string{"纸巾", "洗衣液", "牙膏", "日用品", "超市"}},
-		{"娱乐", 50, []string{"电影", "游戏", "ktv", "唱k", "演唱会", "旅游", "门票"}},
+		{"娱乐", 50, []string{"电影", "游戏", "ktv", "唱k", "演唱会", "门票", "游乐"}},
 		{"工资", 60, []string{"薪水", "工资", "奖金", "年终奖", "报销"}},
 	}
 
@@ -296,6 +297,80 @@ func backfillCategoryDefaults() {
 			// owns the keyword.
 			if err := DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&batch).Error; err != nil {
 				log.Printf("backfill keywords insert (%s): %v", s.name, err)
+			}
+		}
+	}
+}
+
+// optionalExpenseCategorySeeds matches api.initDefaultCategoriesForLedger optional rows
+// (is_system=false). Idempotent: skips ledgers that already have the category name.
+func backfillOptionalExpenseCategories() {
+	type opt struct {
+		name     string
+		icon     string
+		color    string
+		sort     int
+		keywords []string
+	}
+	opts := []opt{
+		{"房租", "Home", "#E17055", 70, []string{"房租", "租金", "租房", "月租", "房东", "房贷"}},
+		{"水电", "Zap", "#3498DB", 80, []string{"水电", "电费", "水费", "燃气", "物业费", "暖气"}},
+		{"数码", "Tv", "#9B59B6", 90, []string{"数码", "手机", "电脑", "平板", "耳机", "笔记本", "显示器"}},
+		{"学习", "BookOpen", "#1ABC9C", 100, []string{"学习", "培训", "课程", "书", "教材", "学费", "考试", "网课"}},
+		{"通信", "Wifi", "#2980B9", 110, []string{"话费", "流量", "宽带", "套餐", "网费", "通讯", "手机费"}},
+		{"医疗", "Stethoscope", "#E74C3C", 120, []string{"医疗", "医院", "药店", "挂号", "体检", "药费", "牙科"}},
+		{"美容", "Heart", "#E91E63", 130, []string{"美容", "美发", "护肤", "美甲", "理发", "面膜"}},
+		{"保险", "PiggyBank", "#34495E", 140, []string{"保险", "保费", "车险", "医疗险", "人寿"}},
+		{"社交", "Gift", "#16A085", 150, []string{"人情", "礼金", "红包", "请客", "聚会", "应酬"}},
+		{"旅游住宿", "Plane", "#D35400", 160, []string{"旅游", "酒店", "民宿", "住宿", "机票", "差旅", "客栈"}},
+	}
+
+	var ledgerIDs []uuid.UUID
+	if err := DB.Model(&models.Ledger{}).Pluck("id", &ledgerIDs).Error; err != nil {
+		log.Printf("backfillOptionalExpenseCategories ledgers: %v", err)
+		return
+	}
+
+	for _, lid := range ledgerIDs {
+		for _, o := range opts {
+			var n int64
+			DB.Model(&models.Category{}).
+				Where("ledger_id = ? AND name = ? AND deleted_at IS NULL", lid, o.name).
+				Count(&n)
+			if n > 0 {
+				continue
+			}
+			cat := models.Category{
+				Name:      o.name,
+				Icon:      o.icon,
+				Color:     o.color,
+				Type:      "expense",
+				IsSystem:  false,
+				LedgerID:  lid,
+				SortOrder: o.sort,
+			}
+			if err := DB.Create(&cat).Error; err != nil {
+				log.Printf("backfillOptionalExpenseCategories create %s: %v", o.name, err)
+				continue
+			}
+			batch := make([]models.CategoryKeyword, 0, len(o.keywords))
+			for _, k := range o.keywords {
+				kw := strings.ToLower(strings.TrimSpace(k))
+				if kw == "" {
+					continue
+				}
+				batch = append(batch, models.CategoryKeyword{
+					Base:       models.Base{ID: uuid.New()},
+					CategoryID: cat.ID,
+					LedgerID:   lid,
+					Keyword:    kw,
+				})
+			}
+			if len(batch) == 0 {
+				continue
+			}
+			if err := DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&batch).Error; err != nil {
+				log.Printf("backfillOptionalExpenseCategories keywords %s: %v", o.name, err)
 			}
 		}
 	}
