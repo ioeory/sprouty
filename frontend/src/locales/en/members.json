@@ -29,6 +29,7 @@
   "noLinkedPersonal": "No personal ledgers linked yet",
   "addPersonalLabel": "Link my personal ledger",
   "addPersonalHint": "Only ledgers you own that are not linked to another family",
+  "noCandidatesHint": "Nothing to add: create a personal ledger first, or check whether it is still linked under another family (each personal book can only attach to one family). If you just removed a sub-ledger, refresh the page and try again.",
   "selectPlaceholder": "Choose…",
   "link": "Link",
   "keywordsTitle": "Quick-entry keywords",

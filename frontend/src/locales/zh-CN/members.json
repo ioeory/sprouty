@@ -29,6 +29,7 @@
   "noLinkedPersonal": "暂无已关联的个人账本",
   "addPersonalLabel": "添加我的个人账本",
   "addPersonalHint": "仅列出您拥有、且尚未关联到其他家庭的个人账本",
+  "noCandidatesHint": "没有可添加的个人账本：请先在「新建账本」里创建个人账本，或检查该账本是否仍关联在别的家庭账本下（每个个人账本只能挂在一个家庭下）。若刚删除过子账本，请刷新页面后再试。",
   "selectPlaceholder": "请选择…",
   "link": "关联",
   "keywordsTitle": "快速记账关键字",

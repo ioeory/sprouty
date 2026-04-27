@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"sprouts-self/backend/internal/models"
 	"sprouts-self/backend/internal/service"
@@ -8,6 +9,19 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
+
+// cleanupOrphanLedgerFamilyLinks removes rows whose personal ledger was deleted
+// (soft or hard), so the id can be linked again after restore or unlink flows.
+func cleanupOrphanLedgerFamilyLinks() {
+	if err := service.DB.Exec(`
+		DELETE FROM ledger_family_links AS l
+		WHERE NOT EXISTS (
+			SELECT 1 FROM ledgers pl
+			WHERE pl.id = l.personal_ledger_id AND pl.deleted_at IS NULL
+		)`).Error; err != nil {
+		log.Printf("cleanupOrphanLedgerFamilyLinks: %v", err)
+	}
+}
 
 // expandFamilyLinkedCluster returns the family ledger plus every personal
 // ledger linked to it (ledger_family_links). Use only after the caller has
@@ -55,6 +69,8 @@ func GetLinkedPersonalLedgers(c *gin.Context) {
 		return
 	}
 
+	cleanupOrphanLedgerFamilyLinks()
+
 	type linkedOut struct {
 		LinkID     uuid.UUID `json:"link_id"`
 		LedgerID   uuid.UUID `json:"ledger_id"`
@@ -98,7 +114,11 @@ func GetLinkedPersonalLedgers(c *gin.Context) {
 	service.DB.Where("owner_id = ? AND type = ?", uid, "personal").Order("name ASC").Find(&owned)
 
 	var used []uuid.UUID
-	service.DB.Model(&models.LedgerFamilyLink{}).Pluck("personal_ledger_id", &used)
+	// Only treat links to active (non-deleted) personal ledgers as consuming the id.
+	service.DB.Model(&models.LedgerFamilyLink{}).
+		Joins("JOIN ledgers pl ON pl.id = ledger_family_links.personal_ledger_id AND pl.deleted_at IS NULL").
+		Distinct().
+		Pluck("ledger_family_links.personal_ledger_id", &used)
 	usedSet := map[uuid.UUID]struct{}{}
 	for _, id := range used {
 		usedSet[id] = struct{}{}
@@ -151,6 +171,8 @@ func LinkPersonalLedger(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "仅家庭账本可关联个人子账本"})
 		return
 	}
+
+	cleanupOrphanLedgerFamilyLinks()
 
 	var pers models.Ledger
 	if err := service.DB.First(&pers, "id = ?", req.PersonalLedgerID).Error; err != nil {

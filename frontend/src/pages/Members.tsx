@@ -360,7 +360,7 @@ export default function Members() {
                   <p className="text-xs text-[var(--color-text-muted)]">{t('members:noLinkedPersonal')}</p>
                 )}
 
-                {familyLinks && familyLinks.candidates.length > 0 && (
+                {familyLinks && familyLinks.candidates.length > 0 ? (
                   <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
                     <div className="flex-1 min-w-0">
                       <Select
@@ -381,6 +381,12 @@ export default function Members() {
                       {t('members:link')}
                     </Button>
                   </div>
+                ) : (
+                  familyLinks && (
+                    <p className="text-xs text-[var(--color-text-muted)] leading-relaxed border border-dashed border-[var(--color-border)] rounded-[var(--radius-md)] px-3 py-2.5">
+                      {t('members:noCandidatesHint')}
+                    </p>
+                  )
                 )}
               </>
             )}
