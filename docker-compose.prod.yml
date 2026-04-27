@@ -39,6 +39,7 @@ services:
       db:
         condition: service_healthy
     environment:
+      TZ: ${TZ:-Asia/Shanghai}
       DB_HOST: db
       DB_PORT: 5432
       DB_USER: ${DB_USER:-sprouts}
@@ -65,6 +66,8 @@ services:
     restart: always
     depends_on:
       - backend
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
     ports:
       - "${FRONTEND_PORT:-4000}:80"
 

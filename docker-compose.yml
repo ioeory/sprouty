@@ -23,6 +23,8 @@ services:
     depends_on:
       - db
     environment:
+      # 进程时区：影响 Go time.Now()/日志；建议 Asia/Shanghai，勿单独写 CST（易歧义）
+      TZ: ${TZ:-Asia/Shanghai}
       DB_HOST: db
       DB_PORT: 5432
       DB_USER: ${DB_USER:-sprouts}
@@ -53,6 +55,9 @@ services:
     restart: always
     depends_on:
       - backend
+    environment:
+      # Nginx access_log 的 $time_local 依赖容器时区；需镜像内安装 tzdata（见 frontend/Dockerfile）
+      TZ: ${TZ:-Asia/Shanghai}
     ports:
       - "4000:80"
 
