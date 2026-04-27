@@ -1,9 +1,11 @@
 package bot
 
 import (
+	"errors"
 	"log"
 	"os"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -37,4 +39,12 @@ func (m *BotManager) StopAll() {
 	if m.telegramAdapter != nil {
 		m.telegramAdapter.Stop()
 	}
+}
+
+// SendTelegramToUser implements push.TelegramNotifier for scheduled digests.
+func (m *BotManager) SendTelegramToUser(userID uuid.UUID, text string) error {
+	if m.telegramAdapter == nil {
+		return errors.New("telegram bot not configured")
+	}
+	return m.telegramAdapter.SendToUser(userID, text)
 }

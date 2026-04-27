@@ -428,3 +428,18 @@ func (t *TelegramAdapter) sendReply(chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
 	t.bot.Send(msg)
 }
+
+// SendToUser delivers a plain-text message to the user's linked Telegram chat (private).
+func (t *TelegramAdapter) SendToUser(userID uuid.UUID, text string) error {
+	var conn models.UserConnection
+	if err := t.db.Where("user_id = ? AND platform = ?", userID, "telegram").First(&conn).Error; err != nil {
+		return err
+	}
+	chatID, err := strconv.ParseInt(conn.ExternalID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("parse telegram chat id: %w", err)
+	}
+	msg := tgbotapi.NewMessage(chatID, text)
+	_, err = t.bot.Send(msg)
+	return err
+}

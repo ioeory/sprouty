@@ -48,6 +48,7 @@ func InitDB() {
 		&models.SystemSettings{},
 		&models.AuditLog{},
 		&models.OIDCExchange{},
+		&models.PushNotificationSetting{},
 	)
 	if err != nil {
 		log.Fatal("Failed to migrate database:", err)

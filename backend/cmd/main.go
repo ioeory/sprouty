@@ -5,6 +5,7 @@ import (
 	"os"
 	"sprouts-self/backend/internal/api"
 	"sprouts-self/backend/internal/bot"
+	"sprouts-self/backend/internal/push"
 	"sprouts-self/backend/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -111,12 +112,19 @@ func main() {
 		// Bot routes (Phase 4)
 		protected.GET("/bot/binding-code", api.GetBindingCode)
 		protected.GET("/bot/status", api.GetBotStatus)
+
+		// Scheduled digest push (Telegram)
+		protected.GET("/push-settings", api.GetPushSettings)
+		protected.PUT("/push-settings", api.PutPushSettings)
+		protected.POST("/push-settings/test", api.PostPushSettingsTest)
 	}
 
 	// Start Bot Manager (Phase 4)
 	botMgr := bot.NewBotManager(service.DB)
 	botMgr.StartAll()
 	defer botMgr.StopAll()
+	push.DefaultNotifier = botMgr
+	push.StartScheduler(service.DB)
 
 	// Start server
 	port := os.Getenv("PORT")

@@ -44,18 +44,18 @@ export const Modal: React.FC<ModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-[2px] animate-fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/30 backdrop-blur-[2px] animate-fade-in overflow-y-auto overscroll-contain"
       onClick={onClose}
     >
       <div
         className={cn(
-          'w-full rounded-[var(--radius-xl)] bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg overflow-hidden animate-scale-in',
+          'w-full my-auto flex max-h-[min(92dvh,calc(100dvh-1.5rem))] flex-col rounded-[var(--radius-xl)] bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg overflow-hidden animate-scale-in',
           sizeMap[size],
         )}
         onClick={(e) => e.stopPropagation()}
       >
         {(title || description) && (
-          <div className="px-6 pt-5 pb-4 border-b border-[var(--color-border)] flex items-start justify-between gap-4">
+          <div className="shrink-0 px-6 pt-5 pb-4 border-b border-[var(--color-border)] flex items-start justify-between gap-4">
             <div className="min-w-0">
               {title && <h2 className="text-base font-semibold text-[var(--color-text)]">{title}</h2>}
               {description && <p className="text-xs text-[var(--color-text-subtle)] mt-1">{description}</p>}
@@ -69,9 +69,11 @@ export const Modal: React.FC<ModalProps> = ({
             </button>
           </div>
         )}
-        <div className="p-6">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-6 pb-[max(1.5rem,env(safe-area-inset-bottom,0px))]">
+          {children}
+        </div>
         {footer && (
-          <div className="px-6 py-4 bg-[var(--color-surface-muted)]/50 border-t border-[var(--color-border)] flex items-center justify-end gap-2">
+          <div className="shrink-0 px-6 py-4 bg-[var(--color-surface-muted)]/50 border-t border-[var(--color-border)] flex items-center justify-end gap-2">
             {footer}
           </div>
         )}
