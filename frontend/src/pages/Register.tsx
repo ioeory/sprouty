@@ -4,6 +4,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Lock, User, Mail, ArrowRight, UserCircle, Sprout } from 'lucide-react';
 import api from '../api/client';
 import { Button, Input } from '../components/ui';
+import { AuthLanguageToggle } from '../components/AuthLanguageToggle';
 
 export default function Register() {
   const { t } = useTranslation(['auth', 'common']);
@@ -48,7 +49,10 @@ export default function Register() {
   };
 
   return (
-    <div className="min-h-screen grid md:grid-cols-2 bg-[var(--color-bg)]">
+    <div className="min-h-screen grid md:grid-cols-2 bg-[var(--color-bg)] relative">
+      <div className="absolute top-4 right-4 z-20 md:top-6 md:right-6">
+        <AuthLanguageToggle />
+      </div>
       <aside className="hidden md:flex flex-col justify-between p-10 relative overflow-hidden bg-gradient-to-br from-[var(--color-brand-softer)] to-[var(--color-surface-muted)]">
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-[var(--radius-md)] bg-[var(--color-brand)] text-white flex items-center justify-center">
