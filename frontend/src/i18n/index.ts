@@ -80,11 +80,20 @@ void i18n
     },
     fallbackLng: 'zh-CN',
     supportedLngs: ['zh-CN', 'en'],
-    nonExplicitSupportedLngs: true,
+    // 必须为 false：若设为 true，isSupportedCode("zh-CN") 会按语言段比对 "zh"，
+    // 而 supportedLngs 里没有 "zh"，中文会被判为不支持，界面会回退显示原始 key。
+    nonExplicitSupportedLngs: false,
     detection: {
       order: ['localStorage', 'navigator'],
       caches: ['localStorage'],
       lookupLocalStorage: LOCALE_STORAGE_KEY,
+      convertDetectedLanguage: (lng: string) => {
+        const l = (lng || '').toLowerCase();
+        if (!l) return lng;
+        if (l.startsWith('en')) return 'en';
+        if (l.startsWith('zh')) return 'zh-CN';
+        return lng;
+      },
     },
     defaultNS: 'common',
     ns: [...namespaces],
