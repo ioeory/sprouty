@@ -7,7 +7,8 @@ import { Button, Input } from '../components/ui';
 import { AuthLanguageToggle } from '../components/AuthLanguageToggle';
 
 export default function Register() {
-  const { t } = useTranslation(['auth', 'common']);
+  const { t } = useTranslation('auth');
+  const { t: tc } = useTranslation('common');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [nickname, setNickname] = useState('');
@@ -42,7 +43,7 @@ export default function Register() {
       await api.post('/auth/register', { username, password, nickname, email });
       navigate('/login');
     } catch (err: any) {
-      setError(err.response?.data?.error || t('auth:registerFailed'));
+      setError(err.response?.data?.error || t('registerFailed'));
     } finally {
       setLoading(false);
     }
@@ -58,20 +59,20 @@ export default function Register() {
           <div className="w-9 h-9 rounded-[var(--radius-md)] bg-[var(--color-brand)] text-white flex items-center justify-center">
             <Sprout size={18} />
           </div>
-          <span className="font-semibold text-[var(--color-text)]">{t('common:appName')}</span>
+          <span className="font-semibold text-[var(--color-text)]">{tc('appName')}</span>
         </div>
 
         <div className="space-y-6 relative z-10">
           <h1 className="text-3xl font-bold text-[var(--color-text)] leading-tight">
-            {t('auth:registerHeroLine1')}
+            {t('registerHeroLine1')}
             <br />
-            {t('auth:registerHeroLine2')}
+            {t('registerHeroLine2')}
           </h1>
           <p className="text-sm text-[var(--color-text-muted)] max-w-sm leading-relaxed">
-            {t('auth:registerHeroSubtitle')}
+            {t('registerHeroSubtitle')}
           </p>
           <ul className="space-y-2 text-sm text-[var(--color-text-muted)]">
-            {[t('auth:registerBullet1'), t('auth:registerBullet2'), t('auth:registerBullet3')].map((item) => (
+            {[t('registerBullet1'), t('registerBullet2'), t('registerBullet3')].map((item) => (
               <li key={item} className="flex items-center gap-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-brand)]" />
                 {item}
@@ -81,7 +82,7 @@ export default function Register() {
         </div>
 
         <p className="text-xs text-[var(--color-text-subtle)] relative z-10">
-          {t('auth:registerFooter', { year: new Date().getFullYear() })}
+          {t('registerFooter', { year: new Date().getFullYear() })}
         </p>
 
         <div className="absolute -bottom-24 -left-16 w-80 h-80 rounded-full bg-[var(--color-brand)]/8 blur-3xl" />
@@ -93,12 +94,12 @@ export default function Register() {
             <div className="w-9 h-9 rounded-[var(--radius-md)] bg-[var(--color-brand)] text-white flex items-center justify-center">
               <Sprout size={18} />
             </div>
-            <span className="font-semibold text-[var(--color-text)]">{t('common:appName')}</span>
+            <span className="font-semibold text-[var(--color-text)]">{tc('appName')}</span>
           </div>
 
           <div className="space-y-1.5">
-            <h2 className="text-2xl font-semibold text-[var(--color-text)]">{t('auth:createAccount')}</h2>
-            <p className="text-sm text-[var(--color-text-muted)]">{t('auth:registerSubtitle')}</p>
+            <h2 className="text-2xl font-semibold text-[var(--color-text)]">{t('createAccount')}</h2>
+            <p className="text-sm text-[var(--color-text-muted)]">{t('registerSubtitle')}</p>
           </div>
 
           {error && (
@@ -109,9 +110,9 @@ export default function Register() {
 
           {registrationOpen === false && (
             <div className="p-4 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] text-sm text-[var(--color-text-muted)] space-y-3">
-              <p>{t('auth:registerClosedBox')}</p>
+              <p>{t('registerClosedBox')}</p>
               <Link to="/login" className="text-[var(--color-brand)] font-medium hover:underline">
-                {t('auth:backToLogin')}
+                {t('backToLogin')}
               </Link>
             </div>
           )}
@@ -119,24 +120,24 @@ export default function Register() {
           {registrationOpen !== false && (
           <form onSubmit={handleRegister} className="space-y-3.5">
             <Input
-              label={t('auth:nickname')}
+              label={t('nickname')}
               leftIcon={<UserCircle size={15} />}
               value={nickname}
               onChange={(e) => setNickname(e.target.value)}
-              placeholder={t('auth:nicknamePlaceholder')}
+              placeholder={t('nicknamePlaceholder')}
               required
             />
             <Input
-              label={t('auth:username')}
+              label={t('username')}
               leftIcon={<User size={15} />}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder={t('auth:usernameUniqueHint')}
+              placeholder={t('usernameUniqueHint')}
               autoComplete="username"
               required
             />
             <Input
-              label={t('auth:emailOptional')}
+              label={t('emailOptional')}
               type="email"
               leftIcon={<Mail size={15} />}
               value={email}
@@ -145,26 +146,26 @@ export default function Register() {
               autoComplete="email"
             />
             <Input
-              label={t('auth:password')}
+              label={t('password')}
               type="password"
               leftIcon={<Lock size={15} />}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder={t('auth:passwordMin')}
+              placeholder={t('passwordMin')}
               autoComplete="new-password"
               minLength={6}
               required
             />
             <Button type="submit" loading={loading} fullWidth rightIcon={<ArrowRight size={16} />} className="mt-2">
-              {t('auth:register')}
+              {t('register')}
             </Button>
           </form>
           )}
 
           <p className="text-center text-xs text-[var(--color-text-muted)]">
-            {t('auth:haveAccount')}{' '}
+            {t('haveAccount')}{' '}
             <Link to="/login" className="text-[var(--color-brand)] hover:underline font-medium">
-              {t('auth:loginDirect')}
+              {t('loginDirect')}
             </Link>
           </p>
         </div>

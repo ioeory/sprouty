@@ -9,7 +9,8 @@ import { Button, Input } from '../components/ui';
 import { AuthLanguageToggle } from '../components/AuthLanguageToggle';
 
 export default function Login() {
-  const { t } = useTranslation(['auth', 'common']);
+  const { t } = useTranslation('auth');
+  const { t: tc } = useTranslation('common');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -63,7 +64,7 @@ export default function Login() {
       } catch (e: any) {
         exchangeStarted.current = false;
         if (!cancelled) {
-          setError(e.response?.data?.error || t('auth:oidcFailed'));
+          setError(e.response?.data?.error || t('oidcFailed'));
         }
       } finally {
         if (!cancelled) setExchangeBusy(false);
@@ -88,7 +89,7 @@ export default function Login() {
       }
       navigate('/');
     } catch (err: any) {
-      setError(err.response?.data?.error || t('auth:loginFailed'));
+      setError(err.response?.data?.error || t('loginFailed'));
     } finally {
       setLoading(false);
     }
@@ -104,21 +105,21 @@ export default function Login() {
           <div className="w-9 h-9 rounded-[var(--radius-md)] bg-[var(--color-brand)] text-white flex items-center justify-center">
             <Sprout size={18} />
           </div>
-          <span className="font-semibold text-[var(--color-text)]">{t('common:appName')}</span>
+          <span className="font-semibold text-[var(--color-text)]">{tc('appName')}</span>
         </div>
 
         <div className="space-y-6 relative z-10">
           <h1 className="text-3xl font-bold text-[var(--color-text)] leading-tight">
-            {t('auth:heroTitleLine1')}
+            {t('heroTitleLine1')}
             <br />
-            {t('auth:heroTitleLine2')}
+            {t('heroTitleLine2')}
           </h1>
-          <p className="text-sm text-[var(--color-text-muted)] max-w-sm leading-relaxed">{t('auth:heroSubtitle')}</p>
+          <p className="text-sm text-[var(--color-text-muted)] max-w-sm leading-relaxed">{t('heroSubtitle')}</p>
           <div className="grid grid-cols-3 gap-3 pt-4">
             {[
-              { icon: <Leaf size={16} />, label: t('auth:featureMinimal') },
-              { icon: <PiggyBank size={16} />, label: t('auth:featureBudget') },
-              { icon: <Users size={16} />, label: t('auth:featureFamily') },
+              { icon: <Leaf size={16} />, label: t('featureMinimal') },
+              { icon: <PiggyBank size={16} />, label: t('featureBudget') },
+              { icon: <Users size={16} />, label: t('featureFamily') },
             ].map((f) => (
               <div
                 key={f.label}
@@ -132,7 +133,7 @@ export default function Login() {
         </div>
 
         <p className="text-xs text-[var(--color-text-subtle)] relative z-10">
-          {t('auth:footer', { year: new Date().getFullYear() })}
+          {t('footer', { year: new Date().getFullYear() })}
         </p>
 
         <div className="absolute -top-20 -right-20 w-72 h-72 rounded-full bg-[var(--color-brand)]/8 blur-3xl" />
@@ -144,16 +145,16 @@ export default function Login() {
             <div className="w-9 h-9 rounded-[var(--radius-md)] bg-[var(--color-brand)] text-white flex items-center justify-center">
               <Sprout size={18} />
             </div>
-            <span className="font-semibold text-[var(--color-text)]">{t('common:appName')}</span>
+            <span className="font-semibold text-[var(--color-text)]">{tc('appName')}</span>
           </div>
 
           <div className="space-y-1.5">
-            <h2 className="text-2xl font-semibold text-[var(--color-text)]">{t('auth:welcomeBack')}</h2>
-            <p className="text-sm text-[var(--color-text-muted)]">{t('auth:loginSubtitle')}</p>
+            <h2 className="text-2xl font-semibold text-[var(--color-text)]">{t('welcomeBack')}</h2>
+            <p className="text-sm text-[var(--color-text-muted)]">{t('loginSubtitle')}</p>
           </div>
 
           {exchangeBusy && (
-            <p className="text-xs text-[var(--color-text-muted)]">{t('auth:oidcBusy')}</p>
+            <p className="text-xs text-[var(--color-text-muted)]">{t('oidcBusy')}</p>
           )}
 
           {error && (
@@ -172,22 +173,22 @@ export default function Login() {
                 window.location.href = apiAuthUrl('/auth/oidc/login');
               }}
             >
-              {t('auth:oidcLogin')}
+              {t('oidcLogin')}
             </Button>
           )}
 
           <form onSubmit={handleLogin} className="space-y-4">
             <Input
-              label={t('auth:username')}
+              label={t('username')}
               leftIcon={<User size={15} />}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder={t('auth:usernamePlaceholder')}
+              placeholder={t('usernamePlaceholder')}
               autoComplete="username"
               required
             />
             <Input
-              label={t('auth:password')}
+              label={t('password')}
               type="password"
               leftIcon={<Lock size={15} />}
               value={password}
@@ -197,17 +198,17 @@ export default function Login() {
               required
             />
             <Button type="submit" loading={loading} fullWidth rightIcon={<ArrowRight size={16} />}>
-              {t('auth:login')}
+              {t('login')}
             </Button>
           </form>
 
           {registrationOpen === false ? (
-            <p className="text-center text-xs text-[var(--color-text-muted)]">{t('auth:registerClosed')}</p>
+            <p className="text-center text-xs text-[var(--color-text-muted)]">{t('registerClosed')}</p>
           ) : (
             <p className="text-center text-xs text-[var(--color-text-muted)]">
-              {t('auth:noAccount')}{' '}
+              {t('noAccount')}{' '}
               <Link to="/register" className="text-[var(--color-brand)] hover:underline font-medium">
-                {t('auth:registerNow')}
+                {t('registerNow')}
               </Link>
             </p>
           )}
