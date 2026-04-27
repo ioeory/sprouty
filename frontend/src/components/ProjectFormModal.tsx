@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import api from '../api/client';
+import { dateInputValueToISO, formatLocalDateForInput } from '../lib/dateLocal';
 import {
   Modal,
   Button,
@@ -30,7 +31,7 @@ interface Props {
   onSuccess: (projectId?: string) => void;
 }
 
-const toDateInput = (v?: string | null) => (v ? new Date(v).toISOString().split('T')[0] : '');
+const toDateInput = (v?: string | null) => (v ? formatLocalDateForInput(new Date(v)) : '');
 
 export default function ProjectFormModal({ open, ledgerId, initial, onClose, onSuccess }: Props) {
   const { t } = useTranslation('modals');
@@ -72,8 +73,8 @@ export default function ProjectFormModal({ open, ledgerId, initial, onClose, onS
         icon,
         color,
         note,
-        start_date: startDate ? new Date(startDate).toISOString() : null,
-        end_date: endDate ? new Date(endDate).toISOString() : null,
+        start_date: startDate ? dateInputValueToISO(startDate) : null,
+        end_date: endDate ? dateInputValueToISO(endDate) : null,
       };
       let res;
       if (isEdit && initial?.id) {

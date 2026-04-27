@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Wallet, Trash2 } from 'lucide-react';
 import api from '../api/client';
+import { formatLocalYearMonth } from '../lib/dateLocal';
 import { Modal, Button, Select, cn } from './ui';
 
 export interface ProjectBudgetInitial {
@@ -41,7 +42,7 @@ export default function ProjectBudgetModal({ open, project, onClose, onSuccess }
     project.budget && project.budget.mode !== 'none' ? String(project.budget.amount || '') : '',
   );
   const [yearMonth, setYearMonth] = useState(
-    project.budget?.year_month || new Date().toISOString().slice(0, 7),
+    project.budget?.year_month || formatLocalYearMonth(new Date()),
   );
   const [budgetLedgerId, setBudgetLedgerId] = useState(
     project.budget?.ledger_id || project.ledger_id || '',
@@ -66,7 +67,7 @@ export default function ProjectBudgetModal({ open, project, onClose, onSuccess }
     const m = project.budget?.mode ?? 'none';
     setMode(m);
     setAmount(project.budget && m !== 'none' ? String(project.budget.amount || '') : '');
-    setYearMonth(project.budget?.year_month || new Date().toISOString().slice(0, 7));
+    setYearMonth(project.budget?.year_month || formatLocalYearMonth(new Date()));
     setBudgetLedgerId(project.budget?.ledger_id || project.ledger_id || '');
     setError('');
   }, [open, project.id, project.ledger_id, project.budget?.ledger_id, project.budget?.mode]);

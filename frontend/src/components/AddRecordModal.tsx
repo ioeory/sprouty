@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Calendar, ArrowDown, ArrowUp, Loader2, FolderKanban, Tag as TagIcon } from 'lucide-react';
 import api from '../api/client';
+import { dateInputValueToISO, formatLocalDateForInput } from '../lib/dateLocal';
 import { Button, Modal, CategoryIcon, cn } from './ui';
 
 interface Category {
@@ -53,8 +54,8 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>(initial?.category_id ?? '');
   const [note, setNote] = useState(initial?.note ?? '');
-  const [date, setDate] = useState(
-    initial?.date ? new Date(initial.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+  const [date, setDate] = useState(() =>
+    initial?.date ? formatLocalDateForInput(new Date(initial.date)) : formatLocalDateForInput(new Date()),
   );
   const [projectId, setProjectId] = useState<string>(initial?.project_id ?? '');
   const [projects, setProjects] = useState<ProjectOption[]>([]);
@@ -122,6 +123,13 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
     };
   }, [ledgerId]);
 
+  useEffect(() => {
+    if (!open) return;
+    setDate(
+      initial?.date ? formatLocalDateForInput(new Date(initial.date)) : formatLocalDateForInput(new Date()),
+    );
+  }, [open, initial?.date, initial?.id]);
+
   const toggleTag = (tagId: string) => {
     setSelectedTagIds((prev) =>
       prev.includes(tagId) ? prev.filter((x) => x !== tagId) : [...prev, tagId],
@@ -139,7 +147,7 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
         type,
         category_id: selectedCategory,
         note,
-        date: new Date(date).toISOString(),
+        date: dateInputValueToISO(date),
         // Send tag_ids even when empty so edits can clear tags (backend
         // treats null = keep, [] = clear, [...] = replace).
         tag_ids: selectedTagIds,
