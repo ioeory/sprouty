@@ -204,8 +204,8 @@ export default function AppLayout() {
         />
 
         <div className="flex-1 flex flex-col min-w-0">
-          <header className="h-14 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4 md:px-6 flex items-center justify-between gap-3 sticky top-0 z-20">
-            <div className="flex items-center gap-2 min-w-0">
+          <header className="h-14 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 sm:px-4 md:px-6 flex items-center justify-between gap-1.5 sm:gap-3 sticky top-0 z-20">
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2 pr-1">
               {/* Mobile hamburger */}
               <button
                 onClick={() => setSidebarOpen(true)}
@@ -229,12 +229,12 @@ export default function AppLayout() {
               <div className="relative">
                 <button
                   onClick={() => setMenuOpen((v) => !v)}
-                  className="flex items-center gap-2 h-9 px-3 rounded-[var(--radius-md)] text-sm border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-muted)] text-[var(--color-text)] transition-colors"
+                  className="flex items-center gap-1.5 sm:gap-2 h-9 min-w-0 max-w-full pl-2 pr-2 sm:px-3 rounded-[var(--radius-md)] text-sm border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-muted)] text-[var(--color-text)] transition-colors"
                 >
-                  <span className="font-medium truncate max-w-[140px]">
+                  <span className="font-medium truncate max-w-[min(7.5rem,28vw)] sm:max-w-[140px]">
                     {currentLedger?.name || '选择账本'}
                   </span>
-                  <ChevronDown size={14} className="text-[var(--color-text-subtle)]" />
+                  <ChevronDown size={14} className="text-[var(--color-text-subtle)] shrink-0" />
                 </button>
                 {currentLedger && user?.id && currentLedger.owner_id === user.id && (
                   <button
@@ -306,12 +306,21 @@ export default function AppLayout() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
               <ThemeToggle className="hidden md:inline-flex" compact />
-              <Button size="sm" leftIcon={<Plus size={14} />} onClick={() => setShowAdd(true)} disabled={!currentLedger}>
-                记一笔
+              <Button
+                size="sm"
+                type="button"
+                title="记一笔"
+                aria-label="记一笔"
+                leftIcon={<Plus size={18} strokeWidth={2.25} className="sm:size-[14px]" />}
+                onClick={() => setShowAdd(true)}
+                disabled={!currentLedger}
+                className="shrink-0 max-sm:h-9 max-sm:w-9 max-sm:min-w-9 max-sm:px-0 max-sm:gap-0 max-sm:justify-center"
+              >
+                <span className="hidden sm:inline">记一笔</span>
               </Button>
-              <div className="flex items-center gap-2 pl-2 ml-1 border-l border-[var(--color-border)]">
+              <div className="flex items-center gap-1 sm:gap-2 pl-1.5 sm:pl-2 ml-0.5 sm:ml-1 border-l border-[var(--color-border)]">
                 <div className="w-8 h-8 rounded-full bg-[var(--color-brand-soft)] text-[var(--color-brand)] flex items-center justify-center text-xs font-semibold">
                   {userInitial}
                 </div>
