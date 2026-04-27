@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import {
   Wallet,
@@ -139,14 +140,14 @@ function SegmentedControl<T extends string>({
   );
 }
 
-function formatDateShort(iso: string): string {
+function formatDateShort(iso: string, t: (key: string, opts?: Record<string, unknown>) => string): string {
   const d = new Date(iso);
   const now = new Date();
   const sameDay =
     d.getFullYear() === now.getFullYear() &&
     d.getMonth() === now.getMonth() &&
     d.getDate() === now.getDate();
-  if (sameDay) return '今天';
+  if (sameDay) return t('dashboard:today');
   const yesterday = new Date(now);
   yesterday.setDate(now.getDate() - 1);
   if (
@@ -154,12 +155,13 @@ function formatDateShort(iso: string): string {
     d.getMonth() === yesterday.getMonth() &&
     d.getDate() === yesterday.getDate()
   ) {
-    return '昨天';
+    return t('dashboard:yesterday');
   }
-  return `${d.getMonth() + 1}月${d.getDate()}日`;
+  return t('dashboard:monthDay', { m: d.getMonth() + 1, d: d.getDate() });
 }
 
 export default function Dashboard() {
+  const { t } = useTranslation('dashboard');
   const { currentLedger, ledgers, setCurrentLedger } = useLayout();
   const navigate = useNavigate();
 
@@ -250,8 +252,8 @@ export default function Dashboard() {
       <Card>
         <EmptyState
           icon={<Wallet size={18} />}
-          title="还没有可用账本"
-          description="账本可能加载失败，请刷新页面或重新登录"
+          title={t('dashboard:noLedgerTitle')}
+          description={t('dashboard:noLedgerDesc')}
         />
       </Card>
     );
@@ -261,7 +263,7 @@ export default function Dashboard() {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-3 text-[var(--color-text-subtle)]">
         <Loader2 className="animate-spin" size={24} />
-        <p className="text-xs">正在加载你的账本…</p>
+        <p className="text-xs">{t('dashboard:loadingLedgers')}</p>
       </div>
     );
   }
@@ -279,10 +281,24 @@ export default function Dashboard() {
     period === 'month'
       ? summary?.current_month ?? ''
       : period === 'year'
-        ? `${summary?.year ?? new Date().getFullYear()} 年`
-        : '全部时间';
-  const expenseLabel = period === 'month' ? '本月支出' : period === 'year' ? '本年支出' : '累计支出';
-  const totalLabel = period === 'month' ? '本月支出' : period === 'year' ? '本年支出' : '累计支出';
+        ? t('dashboard:allYear', { year: summary?.year ?? new Date().getFullYear() })
+        : t('dashboard:allTime');
+  const expenseLabel =
+    period === 'month'
+      ? t('dashboard:expenseThisMonth')
+      : period === 'year'
+        ? t('dashboard:expenseThisYear')
+        : t('dashboard:expenseTotal');
+  const totalLabel = expenseLabel;
+  const chartGroupKey =
+    groupBy === 'category' ? 'chartDescCategory' : groupBy === 'project' ? 'chartDescProject' : 'chartDescLedger';
+  const chartExpenseKey =
+    period === 'month' ? 'expenseThisMonth' : period === 'year' ? 'expenseThisYear' : 'expenseTotal';
+  const chartDescription = t('dashboard:chartLine', {
+    group: t(`dashboard:${chartGroupKey}`),
+    expense: t(`dashboard:${chartExpenseKey}`),
+    cross: scope === 'all' ? t('dashboard:chartCross') : '',
+  });
 
   return (
     <div className="space-y-5">
@@ -291,24 +307,26 @@ export default function Dashboard() {
         <div>
           <p className="text-xs text-[var(--color-text-subtle)] uppercase tracking-widest">
             {periodLabel} ·{' '}
-            {scope === 'all' ? `全部账本 (${summary?.ledger_count ?? 0})` : currentLedger.name}
+            {scope === 'all'
+              ? t('dashboard:allLedgersCount', { count: summary?.ledger_count ?? 0 })
+              : currentLedger.name}
           </p>
-          <h1 className="text-xl font-semibold text-[var(--color-text)] mt-1">仪表盘</h1>
+          <h1 className="text-xl font-semibold text-[var(--color-text)] mt-1">{t('dashboard:title')}</h1>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <SegmentedControl<Period>
             items={[
-              { value: 'month', label: '本月', icon: <CalendarDays size={12} /> },
-              { value: 'year', label: '本年', icon: <CalendarRange size={12} /> },
-              { value: 'all', label: '全部', icon: <InfinityIcon size={12} /> },
+              { value: 'month', label: t('dashboard:periodMonth'), icon: <CalendarDays size={12} /> },
+              { value: 'year', label: t('dashboard:periodYear'), icon: <CalendarRange size={12} /> },
+              { value: 'all', label: t('dashboard:periodAll'), icon: <InfinityIcon size={12} /> },
             ]}
             value={period}
             onChange={setPeriod}
           />
           <SegmentedControl<Scope>
             items={[
-              { value: 'current', label: '当前账本', icon: <Wallet size={12} /> },
-              { value: 'all', label: '全部账本', icon: <Layers size={12} /> },
+              { value: 'current', label: t('dashboard:scopeCurrent'), icon: <Wallet size={12} /> },
+              { value: 'all', label: t('dashboard:scopeAll'), icon: <Layers size={12} /> },
             ]}
             value={scope}
             onChange={(v) => {
@@ -318,10 +336,10 @@ export default function Dashboard() {
           />
           <SegmentedControl<GroupBy>
             items={[
-              { value: 'category', label: '按分类', icon: <Tag size={12} /> },
-              { value: 'project', label: '按项目', icon: <FolderKanban size={12} /> },
+              { value: 'category', label: t('dashboard:groupCategory'), icon: <Tag size={12} /> },
+              { value: 'project', label: t('dashboard:groupProject'), icon: <FolderKanban size={12} /> },
               ...(scope === 'all'
-                ? [{ value: 'ledger' as GroupBy, label: '按账本', icon: <Book size={12} /> }]
+                ? [{ value: 'ledger' as GroupBy, label: t('dashboard:groupLedger'), icon: <Book size={12} /> }]
                 : []),
             ]}
             value={groupBy}
@@ -329,7 +347,7 @@ export default function Dashboard() {
           />
           {scope === 'current' && period === 'month' && (
             <Button variant="outline" size="sm" leftIcon={<Pencil size={14} />} onClick={() => setShowBudget(true)}>
-              编辑预算
+              {t('dashboard:editBudget')}
             </Button>
           )}
         </div>
@@ -342,11 +360,14 @@ export default function Dashboard() {
             <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
               {summary?.includes_linked_personal ? (
                 <>
-                  支出与图表已汇总 <span className="font-medium text-[var(--color-text)]">家庭账本 + 本家庭已关联的 {summary.linked_personal_in_cluster} 个个人子账本</span>
-                  （含其他成员关联账本的流水，无需打开对方子账即可查看）；本月「账本总预算」仅指家庭账本设定值，与上述合并支出对比（子账各自预算不计入此处）。
+                  {t('dashboard:familyMergePrefix')}
+                  <span className="font-medium text-[var(--color-text)]">
+                    {t('dashboard:familyMergeHighlight', { count: summary.linked_personal_in_cluster ?? 0 })}
+                  </span>
+                  {t('dashboard:familyMergeSuffix')}
                 </>
               ) : (
-                <>已关联个人子账本；若刚完成关联，请刷新页面以更新汇总。</>
+                <>{t('dashboard:familyMergePending')}</>
               )}
             </p>
             <div className="flex flex-wrap gap-2 shrink-0">
@@ -361,7 +382,7 @@ export default function Dashboard() {
                     size="sm"
                     onClick={() => setCurrentLedger(full)}
                   >
-                    打开「{sub.name}」
+                    {t('dashboard:openSub', { name: sub.name })}
                   </Button>
                 );
               })}
@@ -376,7 +397,7 @@ export default function Dashboard() {
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-1">
               <p className="text-xs text-[var(--color-text-subtle)] uppercase tracking-widest flex items-center gap-1.5">
-                <Wallet size={12} /> 本月剩余预算
+                <Wallet size={12} /> {t('dashboard:remainingBudget')}
               </p>
               <div className="flex items-baseline gap-2">
                 <span className={`text-3xl font-semibold font-tabular ${overBudget ? 'text-[var(--color-danger)]' : 'text-[var(--color-text)]'}`}>
@@ -384,14 +405,14 @@ export default function Dashboard() {
                 </span>
                 {budget > 0 && (
                   <Badge tone={overBudget ? 'danger' : usagePct > 80 ? 'warning' : 'success'}>
-                    {overBudget ? '已超支' : `${usagePct.toFixed(0)}% 已用`}
+                    {overBudget ? t('dashboard:overBudget') : t('dashboard:usedPct', { pct: usagePct.toFixed(0) })}
                   </Badge>
                 )}
               </div>
             </div>
             {budget === 0 && (
               <Button size="sm" variant="outline" onClick={() => setShowBudget(true)}>
-                设定预算
+                {t('dashboard:setBudget')}
               </Button>
             )}
           </div>
@@ -410,8 +431,8 @@ export default function Dashboard() {
               />
             </div>
             <div className="flex items-center justify-between text-xs text-[var(--color-text-subtle)]">
-              <span>已支出 ¥{expense.toLocaleString()}</span>
-              <span>预算 ¥{budget.toLocaleString()}</span>
+              <span>{t('dashboard:spent', { amount: expense.toLocaleString() })}</span>
+              <span>{t('dashboard:budgetLine', { amount: budget.toLocaleString() })}</span>
             </div>
           </div>
 
@@ -425,13 +446,15 @@ export default function Dashboard() {
             </div>
             <div>
               <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider flex items-center gap-1">
-                <Calendar size={11} /> 剩余天数
+                <Calendar size={11} /> {t('dashboard:daysLeftLabel')}
               </p>
-              <p className="text-sm font-semibold font-tabular text-[var(--color-text)] mt-1">{summary?.days_left ?? 0} 天</p>
+              <p className="text-sm font-semibold font-tabular text-[var(--color-text)] mt-1">
+                {summary?.days_left ?? 0} {t('dashboard:daysUnit')}
+              </p>
             </div>
             <div>
               <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider flex items-center gap-1">
-                <Sparkles size={11} /> 日均可花
+                <Sparkles size={11} /> {t('dashboard:dailyLimit')}
               </p>
               <p className={`text-sm font-semibold font-tabular mt-1 ${summary && summary.daily_avg_limit < 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-brand)]'}`}>
                 ¥{(summary?.daily_avg_limit ?? 0).toFixed(2)}
@@ -445,24 +468,24 @@ export default function Dashboard() {
           <div>
             <CardHeader
               icon={<TrendingDown size={16} />}
-              title="本月动态"
-              description="与预算对比的关键信号"
+              title={t('dashboard:pulseTitle')}
+              description={t('dashboard:pulseDesc')}
             />
             <div className="mt-4 space-y-3">
               <div className="flex items-center justify-between py-2.5 px-3 rounded-[var(--radius-md)] bg-[var(--color-surface-muted)]">
-                <span className="text-xs text-[var(--color-text-muted)]">分类数量</span>
+                <span className="text-xs text-[var(--color-text-muted)]">{t('dashboard:metricCategories')}</span>
                 <span className="text-sm font-medium font-tabular">{summary?.category_stats?.length ?? 0}</span>
               </div>
               <div className="flex items-center justify-between py-2.5 px-3 rounded-[var(--radius-md)] bg-[var(--color-surface-muted)]">
-                <span className="text-xs text-[var(--color-text-muted)]">支出占比</span>
+                <span className="text-xs text-[var(--color-text-muted)]">{t('dashboard:metricShare')}</span>
                 <span className="text-sm font-medium font-tabular">
                   {budget > 0 ? `${usagePct.toFixed(1)}%` : '—'}
                 </span>
               </div>
               <div className="flex items-center justify-between py-2.5 px-3 rounded-[var(--radius-md)] bg-[var(--color-surface-muted)]">
-                <span className="text-xs text-[var(--color-text-muted)]">健康度</span>
+                <span className="text-xs text-[var(--color-text-muted)]">{t('dashboard:metricHealth')}</span>
                 <Badge tone={overBudget ? 'danger' : usagePct > 80 ? 'warning' : 'success'} dot>
-                  {overBudget ? '超支' : usagePct > 80 ? '临界' : '良好'}
+                  {overBudget ? t('dashboard:healthOver') : usagePct > 80 ? t('dashboard:healthWarn') : t('dashboard:healthOk')}
                 </Badge>
               </div>
             </div>
@@ -474,12 +497,12 @@ export default function Dashboard() {
           exclusions, even before any tag exists). */}
       <Card padding="md" className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-text-muted)] shrink-0">
-          <Tag size={12} /> 标签筛选
+          <Tag size={12} /> {t('dashboard:tagFilter')}
         </div>
 
         {allTags.length === 0 ? (
           <p className="text-[11px] text-[var(--color-text-subtle)]">
-            还没有标签。到「
+            {t('dashboard:tagEmptyHint')}
             <a
               href="/categories"
               onClick={(e) => {
@@ -488,9 +511,9 @@ export default function Dashboard() {
               }}
               className="text-[var(--color-brand)] hover:underline"
             >
-              分类 → 标签
+              {t('dashboard:tagEmptyMid')}
             </a>
-            」创建后，支出分析可按标签排除/包含（例如排除「报销」「转账」不进入统计）。
+            {t('dashboard:tagEmptyEnd')}
           </p>
         ) : (
           <>
@@ -502,7 +525,7 @@ export default function Dashboard() {
                 onChange={(e) => setBypassTagFilter(e.target.checked)}
                 className="accent-[var(--color-brand)]"
               />
-              包含所有已排除标签
+              {t('dashboard:includeExcluded')}
             </label>
 
             <div className="h-4 w-px bg-[var(--color-border)] mx-1" />
@@ -525,10 +548,10 @@ export default function Dashboard() {
                     disabled={isDefaultExcluded}
                     title={
                       isDefaultExcluded
-                        ? '该标签在「分类 → 标签」里被设为默认排除，使用上方开关统一控制'
+                        ? t('dashboard:tagTooltipDefault')
                         : isManuallyExcluded
-                        ? '点击恢复此标签到统计中'
-                        : '点击从统计中排除此标签'
+                          ? t('dashboard:tagTooltipRestore')
+                          : t('dashboard:tagTooltipExclude')
                     }
                     className={cn(
                       'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] border transition-colors',
@@ -540,7 +563,7 @@ export default function Dashboard() {
                   >
                     <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: tg.color || '#a78bfa' }} />
                     {tg.name}
-                    {isDefaultExcluded && <span className="opacity-70">·默认</span>}
+                    {isDefaultExcluded && <span className="opacity-70">{t('dashboard:tagDefaultSuffix')}</span>}
                   </button>
                 );
               })}
@@ -554,12 +577,8 @@ export default function Dashboard() {
         <Card className="lg:col-span-3" padding="lg">
           <CardHeader
             icon={<PieChartIcon size={16} />}
-            title="支出分析"
-            description={
-              (groupBy === 'category' ? '按分类统计' : groupBy === 'project' ? '按项目统计' : '按账本统计') +
-              (period === 'month' ? '本月支出' : period === 'year' ? '本年支出' : '累计支出') +
-              (scope === 'all' ? '（跨账本汇总）' : '')
-            }
+            title={t('dashboard:chartTitle')}
+            description={chartDescription}
           />
           <div className="mt-4">
             <SpendingChart
@@ -572,14 +591,18 @@ export default function Dashboard() {
               }
               totalLabel={totalLabel}
               emptyTitle={
-                period === 'month' ? '本月还没有支出' : period === 'year' ? '本年还没有支出' : '暂无支出记录'
+                period === 'month'
+                  ? t('dashboard:emptyExpenseMonth')
+                  : period === 'year'
+                    ? t('dashboard:emptyExpenseYear')
+                    : t('dashboard:emptyExpenseAll')
               }
               emptyDescription={
                 groupBy === 'project'
-                  ? '将交易关联到项目即可在此查看占比'
+                  ? t('dashboard:emptyHintProject')
                   : groupBy === 'ledger'
-                    ? '切换到「全部账本」并添加多本账本后，这里会展示各账本占比'
-                    : '记录第一笔开销后，这里会展示分类占比'
+                    ? t('dashboard:emptyHintLedger')
+                    : t('dashboard:emptyHintCategory')
               }
             />
           </div>
@@ -588,19 +611,19 @@ export default function Dashboard() {
         <Card className="lg:col-span-2" padding="lg">
           <CardHeader
             icon={<Receipt size={16} />}
-            title="最近流水"
+            title={t('dashboard:recentTitle')}
             description={
               currentLedger.type === 'family' &&
               ((currentLedger.linked_personal_count ?? 0) > 0 || (currentLedger.linked_personal?.length ?? 0) > 0)
-                ? '含家庭账与本家庭全部已关联子账，最新 5 条'
-                : '最新的 5 条记录'
+                ? t('dashboard:recentDescMerged')
+                : t('dashboard:recentDescDefault')
             }
             action={
               <button
                 onClick={() => navigate('/transactions')}
                 className="text-xs font-medium text-[var(--color-brand)] hover:underline flex items-center gap-0.5"
               >
-                查看全部 <ArrowUpRight size={12} />
+                {t('dashboard:viewAll')} <ArrowUpRight size={12} />
               </button>
             }
           />
@@ -608,8 +631,8 @@ export default function Dashboard() {
             {recent.length === 0 ? (
               <EmptyState
                 icon={<Receipt size={18} />}
-                title="暂无记录"
-                description="点击右上角「记一笔」开始记录"
+                title={t('dashboard:recentEmptyTitle')}
+                description={t('dashboard:recentEmptyDesc')}
               />
             ) : (
               <ul className="divide-y divide-[var(--color-border)]">
@@ -627,7 +650,7 @@ export default function Dashboard() {
                       <CategoryIcon name={cat?.icon} color={cat?.color} size={34} />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm text-[var(--color-text)] truncate">
-                          {cat?.name || '未分类'}
+                          {cat?.name || t('dashboard:uncategorized')}
                           {subName && (
                             <span className="ml-1.5 text-[10px] text-[var(--color-brand)] font-normal">
                               · {subName}
@@ -636,7 +659,7 @@ export default function Dashboard() {
                           {tx.note && <span className="text-[var(--color-text-subtle)] ml-1.5 text-xs">· {tx.note}</span>}
                         </p>
                         <p className="text-[11px] text-[var(--color-text-subtle)] font-tabular mt-0.5">
-                          {formatDateShort(tx.date)}
+                          {formatDateShort(tx.date, t)}
                         </p>
                       </div>
                       <span

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Target } from 'lucide-react';
 import api from '../api/client';
 import { Button, Modal } from './ui';
@@ -12,6 +13,8 @@ interface Props {
 }
 
 export default function EditBudgetModal({ open, ledgerId, currentBudget, onClose, onSuccess }: Props) {
+  const { t } = useTranslation('modals');
+  const { t: tc } = useTranslation('common');
   const [amount, setAmount] = useState(currentBudget ? currentBudget.toString() : '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -32,7 +35,7 @@ export default function EditBudgetModal({ open, ledgerId, currentBudget, onClose
       onSuccess();
       onClose();
     } catch (err: any) {
-      setError(err.response?.data?.error || '更新预算失败');
+      setError(err.response?.data?.error || t('updateBudgetFailed'));
     } finally {
       setLoading(false);
     }
@@ -48,10 +51,10 @@ export default function EditBudgetModal({ open, ledgerId, currentBudget, onClose
       title={
         <span className="flex items-center gap-2">
           <Target size={16} className="text-[var(--color-brand)]" />
-          设置本月预算
+          {t('editBudgetTitle')}
         </span>
       }
-      description="控制开销从设定边界开始"
+      description={t('editBudgetDesc')}
     >
       <form onSubmit={handleSubmit} className="space-y-5">
         <div className="space-y-2">
@@ -91,10 +94,10 @@ export default function EditBudgetModal({ open, ledgerId, currentBudget, onClose
 
         <div className="flex gap-2">
           <Button type="button" variant="outline" fullWidth onClick={onClose}>
-            取消
+            {tc('cancel')}
           </Button>
           <Button type="submit" loading={loading} fullWidth>
-            保存预算
+            {t('saveBudget')}
           </Button>
         </div>
       </form>

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Plus, Pencil, Trash2, Tags, Lock, Loader2, ArrowUp, ArrowDown } from 'lucide-react';
 import api from '../api/client';
 import {
@@ -47,6 +48,7 @@ const DEFAULT_EDIT: EditState = {
 };
 
 export default function Categories() {
+  const { t } = useTranslation(['categories', 'common']);
   const { currentLedger } = useLayout();
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -96,7 +98,7 @@ export default function Categories() {
   const save = async () => {
     if (!editor || !currentLedger) return;
     if (!editor.name.trim()) {
-      setError('请填写分类名称');
+      setError(t('categories:nameRequired'));
       return;
     }
     setSaving(true);
@@ -120,7 +122,7 @@ export default function Categories() {
       setEditor(null);
       load(currentLedger.id);
     } catch (err: any) {
-      setError(err.response?.data?.error || '保存失败');
+      setError(err.response?.data?.error || t('categories:saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -134,7 +136,7 @@ export default function Categories() {
       setDeleting(null);
       load(currentLedger.id);
     } catch (err: any) {
-      setError(err.response?.data?.error || '删除失败');
+      setError(err.response?.data?.error || t('categories:deleteFailed'));
     } finally {
       setSaving(false);
     }
@@ -173,7 +175,7 @@ export default function Categories() {
   if (!currentLedger) {
     return (
       <Card>
-        <EmptyState icon={<Tags size={18} />} title="请先选择账本" />
+        <EmptyState icon={<Tags size={18} />} title={t('categories:selectLedgerFirst')} />
       </Card>
     );
   }
@@ -192,13 +194,13 @@ export default function Categories() {
         }
         action={
           <Button size="sm" variant="outline" leftIcon={<Plus size={12} />} onClick={() => openCreate(type)}>
-            新建
+            {t('categories:new')}
           </Button>
         }
       />
       <div className="mt-4">
         {items.length === 0 ? (
-          <EmptyState icon={<Tags size={18} />} title="暂无分类" />
+          <EmptyState icon={<Tags size={18} />} title={t('categories:emptyCategories')} />
         ) : (
           <ul className="divide-y divide-[var(--color-border)]">
             {items.map((cat, idx) => (
@@ -213,11 +215,11 @@ export default function Categories() {
                       {cat.name}
                       {cat.is_system && (
                         <span className="inline-flex items-center gap-0.5 text-[10px] text-[var(--color-text-subtle)]">
-                          <Lock size={10} /> 系统
+                          <Lock size={10} /> {t('categories:system')}
                         </span>
                       )}
                       <span className="inline-flex items-center gap-0.5 text-[10px] text-[var(--color-text-subtle)]">
-                        优先级 {cat.sort_order}
+                        {t('categories:sortPriority', { n: cat.sort_order })}
                       </span>
                     </p>
                     <p className="text-[11px] text-[var(--color-text-subtle)] font-mono">
@@ -227,7 +229,7 @@ export default function Categories() {
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                     <button
                       onClick={() => moveSort(cat, 'up')}
-                      title="提高优先级"
+                      title={t('categories:moveUp')}
                       disabled={idx === 0}
                       className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-subtle)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)] disabled:opacity-30 disabled:cursor-not-allowed"
                     >
@@ -235,7 +237,7 @@ export default function Categories() {
                     </button>
                     <button
                       onClick={() => moveSort(cat, 'down')}
-                      title="降低优先级"
+                      title={t('categories:moveDown')}
                       disabled={idx === items.length - 1}
                       className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-subtle)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)] disabled:opacity-30 disabled:cursor-not-allowed"
                     >
@@ -243,7 +245,7 @@ export default function Categories() {
                     </button>
                     <button
                       onClick={() => openEdit(cat)}
-                      title="编辑"
+                      title={t('categories:edit')}
                       className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-subtle)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)]"
                     >
                       <Pencil size={13} />
@@ -251,7 +253,7 @@ export default function Categories() {
                     {!cat.is_system && (
                       <button
                         onClick={() => setDeleting(cat)}
-                        title="删除"
+                        title={t('categories:delete')}
                         className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-subtle)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)]"
                       >
                         <Trash2 size={13} />
@@ -279,10 +281,8 @@ export default function Categories() {
     <div className="space-y-5">
       <div>
         <p className="text-xs text-[var(--color-text-subtle)] uppercase tracking-widest">{currentLedger.name}</p>
-        <h1 className="text-xl font-semibold text-[var(--color-text)] mt-1">分类管理</h1>
-        <p className="text-xs text-[var(--color-text-subtle)] mt-1">
-          为账本定制专属分类、图标与配色，记账时更容易识别
-        </p>
+        <h1 className="text-xl font-semibold text-[var(--color-text)] mt-1">{t('categories:title')}</h1>
+        <p className="text-xs text-[var(--color-text-subtle)] mt-1">{t('categories:subtitle')}</p>
       </div>
 
       {loading ? (
@@ -291,8 +291,8 @@ export default function Categories() {
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {renderGroup('支出分类', 'expense', grouped.expense)}
-          {renderGroup('收入分类', 'income', grouped.income)}
+          {renderGroup(t('categories:expenseGroup'), 'expense', grouped.expense)}
+          {renderGroup(t('categories:incomeGroup'), 'income', grouped.income)}
         </div>
       )}
 
@@ -304,15 +304,15 @@ export default function Categories() {
       <Modal
         open={!!editor}
         onClose={() => setEditor(null)}
-        title={editor?.id ? '编辑分类' : '新建分类'}
-        description={editor?.type === 'expense' ? '支出类分类' : '收入类分类'}
+        title={editor?.id ? t('categories:modalEditTitle') : t('categories:modalCreateTitle')}
+        description={editor?.type === 'expense' ? t('categories:modalExpenseDesc') : t('categories:modalIncomeDesc')}
         footer={
           <>
             <Button variant="outline" onClick={() => setEditor(null)}>
-              取消
+              {t('common:cancel')}
             </Button>
             <Button loading={saving} onClick={save}>
-              保存
+              {t('common:save')}
             </Button>
           </>
         }
@@ -323,21 +323,21 @@ export default function Categories() {
               <CategoryIcon name={editor.icon} color={editor.color} size={48} />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-[var(--color-text)] truncate">
-                  {editor.name || '未命名'}
+                  {editor.name || t('categories:unnamed')}
                 </p>
-                <p className="text-xs text-[var(--color-text-subtle)]">预览</p>
+                <p className="text-xs text-[var(--color-text-subtle)]">{t('categories:preview')}</p>
               </div>
             </div>
 
             <Input
-              label="名称"
+              label={t('categories:nameLabel')}
               value={editor.name}
               onChange={(e) => setEditor({ ...editor, name: e.target.value })}
-              placeholder="例如：外卖、房租、交通卡"
+              placeholder={t('categories:namePlaceholder')}
             />
 
             <div>
-              <p className="text-xs font-medium text-[var(--color-text-muted)] mb-2">颜色</p>
+              <p className="text-xs font-medium text-[var(--color-text-muted)] mb-2">{t('categories:color')}</p>
               <div className="grid grid-cols-9 gap-1.5">
                 {CATEGORY_COLORS.map((c) => (
                   <button
@@ -358,7 +358,7 @@ export default function Categories() {
             </div>
 
             <div>
-              <p className="text-xs font-medium text-[var(--color-text-muted)] mb-2">图标</p>
+              <p className="text-xs font-medium text-[var(--color-text-muted)] mb-2">{t('categories:icon')}</p>
               <div className="grid grid-cols-8 gap-1.5 max-h-44 overflow-y-auto p-1">
                 {ICON_NAMES.map((name) => (
                   <button
@@ -392,15 +392,15 @@ export default function Categories() {
         open={!!deleting}
         onClose={() => setDeleting(null)}
         size="sm"
-        title="删除分类？"
-        description="该操作不可撤销"
+        title={t('categories:deleteTitle')}
+        description={t('categories:deleteDesc')}
         footer={
           <>
             <Button variant="outline" onClick={() => setDeleting(null)}>
-              取消
+              {t('common:cancel')}
             </Button>
             <Button variant="danger" loading={saving} onClick={confirmDelete}>
-              删除
+              {t('common:delete')}
             </Button>
           </>
         }
@@ -411,7 +411,7 @@ export default function Categories() {
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-[var(--color-text)]">{deleting.name}</p>
               <p className="text-xs text-[var(--color-text-subtle)]">
-                {deleting.type === 'expense' ? '支出分类' : '收入分类'}
+                {deleting.type === 'expense' ? t('categories:expenseType') : t('categories:incomeType')}
               </p>
             </div>
           </div>

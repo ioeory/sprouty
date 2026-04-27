@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import {
   Plus,
@@ -49,14 +50,11 @@ interface ProjectSummary {
   usage_pct: number;
 }
 
-const MODE_LABEL: Record<ProjectSummary['budget']['mode'], string> = {
-  none: '无预算',
-  total: '一次性',
-  monthly: '月预算',
-};
-
 export default function Projects() {
+  const { t } = useTranslation(['projects', 'common']);
   const { currentLedger } = useLayout();
+  const modeLabel = (m: ProjectSummary['budget']['mode']) =>
+    m === 'none' ? t('projects:budgetMode_none') : m === 'total' ? t('projects:budgetMode_total') : t('projects:budgetMode_monthly');
   const navigate = useNavigate();
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -111,7 +109,7 @@ export default function Projects() {
   if (!currentLedger) {
     return (
       <Card>
-        <EmptyState icon={<FolderKanban size={18} />} title="请先选择一个账本" />
+        <EmptyState icon={<FolderKanban size={18} />} title={t('projects:selectLedger')} />
       </Card>
     );
   }
@@ -121,10 +119,8 @@ export default function Projects() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-xs text-[var(--color-text-subtle)] uppercase tracking-widest">{currentLedger.name}</p>
-          <h1 className="text-xl font-semibold text-[var(--color-text)] mt-1">项目预算</h1>
-          <p className="text-xs text-[var(--color-text-muted)] mt-1">
-            按项目打包你的支出，一次性或按月设预算
-          </p>
+          <h1 className="text-xl font-semibold text-[var(--color-text)] mt-1">{t('projects:title')}</h1>
+          <p className="text-xs text-[var(--color-text-muted)] mt-1">{t('projects:subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
           <label className="flex items-center gap-2 text-xs text-[var(--color-text-muted)] cursor-pointer">
@@ -134,10 +130,10 @@ export default function Projects() {
               checked={showArchived}
               onChange={(e) => setShowArchived(e.target.checked)}
             />
-            显示已归档
+            {t('projects:showArchived')}
           </label>
           <Button size="sm" leftIcon={<Plus size={14} />} onClick={() => setShowForm(true)}>
-            新建项目
+            {t('projects:newProject')}
           </Button>
         </div>
       </div>
@@ -150,11 +146,11 @@ export default function Projects() {
         <Card padding="lg">
           <EmptyState
             icon={<FolderKanban size={20} />}
-            title={showArchived ? '暂无项目' : '还没有进行中的项目'}
-            description="可以把一次旅行、装修、学习投入打包成一个项目，单独跟踪预算进度"
+            title={showArchived ? t('projects:emptyArchived') : t('projects:emptyActive')}
+            description={t('projects:emptyDesc')}
             action={
               <Button size="sm" leftIcon={<Plus size={14} />} onClick={() => setShowForm(true)}>
-                新建项目
+                {t('projects:newProject')}
               </Button>
             }
           />
@@ -184,16 +180,16 @@ export default function Projects() {
                     </button>
                     <div className="flex items-center gap-1.5 mt-1">
                       <Badge tone={p.budget.mode === 'none' ? 'neutral' : 'info'}>
-                        {MODE_LABEL[p.budget.mode]}
+                        {modeLabel(p.budget.mode)}
                       </Badge>
-                      {p.status === 'archived' && <Badge tone="neutral">已归档</Badge>}
+                      {p.status === 'archived' && <Badge tone="neutral">{t('projects:archived')}</Badge>}
                     </div>
                   </div>
                   <div className="relative">
                     <button
                       onClick={() => setOpenMenu(openMenu === p.id ? null : p.id)}
                       className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-md)] text-[var(--color-text-subtle)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)]"
-                      aria-label="更多操作"
+                      aria-label={t('projects:moreMenu')}
                     >
                       <MoreHorizontal size={14} />
                     </button>
@@ -208,7 +204,7 @@ export default function Projects() {
                             }}
                             className="w-full flex items-center gap-2 px-3 py-2 text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
                           >
-                            <Wallet size={14} /> 编辑预算
+                            <Wallet size={14} /> {t('projects:editBudget')}
                           </button>
                           <button
                             onClick={() => {
@@ -217,7 +213,7 @@ export default function Projects() {
                             }}
                             className="w-full flex items-center gap-2 px-3 py-2 text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
                           >
-                            <Pencil size={14} /> 编辑信息
+                            <Pencil size={14} /> {t('projects:editInfo')}
                           </button>
                           <button
                             onClick={() => handleArchiveToggle(p)}
@@ -225,11 +221,11 @@ export default function Projects() {
                           >
                             {p.status === 'active' ? (
                               <>
-                                <Archive size={14} /> 归档
+                                <Archive size={14} /> {t('projects:archive')}
                               </>
                             ) : (
                               <>
-                                <ArchiveRestore size={14} /> 恢复
+                                <ArchiveRestore size={14} /> {t('projects:restore')}
                               </>
                             )}
                           </button>
@@ -241,7 +237,7 @@ export default function Projects() {
                             }}
                             className="w-full flex items-center gap-2 px-3 py-2 text-[var(--color-danger)] hover:bg-[var(--color-danger-soft)]"
                           >
-                            <Trash2 size={14} /> 删除
+                            <Trash2 size={14} /> {t('projects:delete')}
                           </button>
                         </div>
                       </>
@@ -253,20 +249,22 @@ export default function Projects() {
                 {p.budget.mode === 'none' ? (
                   <div className="rounded-[var(--radius-md)] bg-[var(--color-surface-muted)] p-3 flex items-center justify-between">
                     <div>
-                      <p className="text-xs text-[var(--color-text-subtle)]">累计支出</p>
+                      <p className="text-xs text-[var(--color-text-subtle)]">{t('projects:cumulativeExpense')}</p>
                       <p className="text-sm font-semibold text-[var(--color-text)] font-tabular mt-0.5">
                         ¥{p.spent_total.toFixed(2)}
                       </p>
                     </div>
                     <Button size="sm" variant="outline" onClick={() => setBudgetEditing(p)}>
-                      设预算
+                      {t('projects:setBudget')}
                     </Button>
                   </div>
                 ) : (
                   <div className="space-y-2">
                     <div className="flex items-baseline justify-between">
                       <span className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider">
-                        {p.budget.mode === 'monthly' ? `${p.budget.year_month} 已花` : '累计已花'}
+                        {p.budget.mode === 'monthly'
+                          ? t('projects:spentMonthly', { ym: p.budget.year_month ?? '' })
+                          : t('projects:spentCumulative')}
                       </span>
                       <span className={cn('text-sm font-semibold font-tabular', overBudget ? 'text-[var(--color-danger)]' : 'text-[var(--color-text)]')}>
                         ¥{p.spent.toFixed(2)}
@@ -285,9 +283,12 @@ export default function Projects() {
                       />
                     </div>
                     <div className="flex items-center justify-between text-[11px] text-[var(--color-text-subtle)]">
-                      <span>{overBudget ? '已超支' : `${usagePct.toFixed(0)}% 已用`}</span>
                       <span>
-                        剩余 <span className={cn('font-tabular', overBudget ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-muted)]')}>
+                        {overBudget ? t('projects:overBudget') : t('projects:pctUsed', { pct: usagePct.toFixed(0) })}
+                      </span>
+                      <span>
+                        {t('projects:remaining')}{' '}
+                        <span className={cn('font-tabular', overBudget ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-muted)]')}>
                           ¥{Math.max(0, p.budget.amount - p.spent).toFixed(2)}
                         </span>
                       </span>
@@ -343,8 +344,8 @@ export default function Projects() {
         <Modal
           open
           onClose={() => setDeleting(null)}
-          title="删除项目？"
-          description="项目下的交易会被解除绑定，但不会被删除"
+          title={t('projects:deleteTitle')}
+          description={t('projects:deleteDesc')}
           size="sm"
         >
           <div className="space-y-4">
@@ -352,15 +353,17 @@ export default function Projects() {
               <CategoryIcon name={deleting.icon} color={deleting.color} size={40} />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-[var(--color-text)] truncate">{deleting.name}</p>
-                <p className="text-xs text-[var(--color-text-subtle)]">累计支出 ¥{deleting.spent_total.toFixed(2)}</p>
+                <p className="text-xs text-[var(--color-text-subtle)]">
+                  {t('projects:spentTotalLine', { amount: deleting.spent_total.toFixed(2) })}
+                </p>
               </div>
             </div>
             <div className="flex gap-2">
               <Button variant="outline" fullWidth onClick={() => setDeleting(null)}>
-                取消
+                {t('common:cancel')}
               </Button>
               <Button variant="danger" fullWidth leftIcon={<Trash2 size={14} />} onClick={handleDelete}>
-                删除
+                {t('common:delete')}
               </Button>
             </div>
           </div>

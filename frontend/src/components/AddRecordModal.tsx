@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Calendar, ArrowDown, ArrowUp, Loader2, FolderKanban, Tag as TagIcon } from 'lucide-react';
 import api from '../api/client';
 import { Button, Modal, CategoryIcon, cn } from './ui';
@@ -44,6 +45,8 @@ interface Props {
 }
 
 export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, initial }: Props) {
+  const { t } = useTranslation('modals');
+  const { t: tc } = useTranslation('common');
   const isEdit = !!initial?.id;
   const [amount, setAmount] = useState(initial?.amount?.toString() ?? '');
   const [type, setType] = useState(initial?.type ?? 'expense');
@@ -119,9 +122,9 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
     };
   }, [ledgerId]);
 
-  const toggleTag = (id: string) => {
+  const toggleTag = (tagId: string) => {
     setSelectedTagIds((prev) =>
-      prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id],
+      prev.includes(tagId) ? prev.filter((x) => x !== tagId) : [...prev, tagId],
     );
   };
 
@@ -156,7 +159,7 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
       onSuccess();
       onClose();
     } catch (err: any) {
-      setError(err.response?.data?.error || '保存失败');
+      setError(err.response?.data?.error || t('saveFailed'));
     } finally {
       setLoading(false);
     }
@@ -166,8 +169,8 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
     <Modal
       open={open}
       onClose={onClose}
-      title={isEdit ? '编辑记录' : '记一笔'}
-      description={isEdit ? '修改这笔交易的信息' : '快速录入一笔收支'}
+      title={isEdit ? t('addRecordEditTitle') : t('addRecordCreateTitle')}
+      description={isEdit ? t('addRecordEditDesc') : t('addRecordCreateDesc')}
       size="md"
     >
       <form onSubmit={handleSubmit} className="space-y-5">
@@ -183,7 +186,7 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
                 : 'text-[var(--color-text-subtle)] hover:text-[var(--color-text-muted)]',
             )}
           >
-            <ArrowDown size={14} /> 支出
+            <ArrowDown size={14} /> {t('expense')}
           </button>
           <button
             type="button"
@@ -195,7 +198,7 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
                 : 'text-[var(--color-text-subtle)] hover:text-[var(--color-text-muted)]',
             )}
           >
-            <ArrowUp size={14} /> 收入
+            <ArrowUp size={14} /> {t('income')}
           </button>
         </div>
 
@@ -217,14 +220,16 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
 
         {/* Category grid */}
         <div className="space-y-2">
-          <p className="text-xs font-medium text-[var(--color-text-muted)]">选择分类</p>
+          <p className="text-xs font-medium text-[var(--color-text-muted)]">{t('pickCategory')}</p>
           {loadingCats ? (
             <div className="h-24 flex items-center justify-center text-[var(--color-text-subtle)]">
               <Loader2 className="animate-spin" size={18} />
             </div>
           ) : categories.length === 0 ? (
             <p className="text-xs text-[var(--color-text-subtle)] py-6 text-center border border-dashed border-[var(--color-border)] rounded-[var(--radius-md)]">
-              还没有{type === 'expense' ? '支出' : '收入'}分类，请先到"分类管理"里创建
+              {t('noCategories', {
+                kind: type === 'expense' ? t('kindExpense') : t('kindIncome'),
+              })}
             </p>
           ) : (
             <div className="grid grid-cols-4 gap-2">
@@ -257,7 +262,7 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-[var(--color-text-muted)] flex items-center gap-1.5">
-              <Calendar size={12} /> 日期
+              <Calendar size={12} /> {t('date')}
             </label>
             <input
               type="date"
@@ -267,12 +272,12 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-[var(--color-text-muted)]">备注</label>
+            <label className="text-xs font-medium text-[var(--color-text-muted)]">{t('note')}</label>
             <input
               type="text"
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="花在了什么上…"
+              placeholder={t('notePlaceholder')}
               className="w-full h-10 px-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] text-sm outline-none focus:border-[var(--color-brand)] focus:ring-2 focus:ring-[var(--color-brand)]/20"
             />
           </div>
@@ -281,14 +286,14 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
         {projects.length > 0 && (
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-[var(--color-text-muted)] flex items-center gap-1.5">
-              <FolderKanban size={12} /> 所属项目（可选）
+              <FolderKanban size={12} /> {t('projectOptional')}
             </label>
             <select
               value={projectId}
               onChange={(e) => setProjectId(e.target.value)}
               className="w-full h-10 px-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] text-sm outline-none focus:border-[var(--color-brand)] focus:ring-2 focus:ring-[var(--color-brand)]/20"
             >
-              <option value="">不归属任何项目</option>
+              <option value="">{t('projectNone')}</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -303,11 +308,11 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
             page where TagsManager lives. */}
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-[var(--color-text-muted)] flex items-center gap-1.5">
-            <TagIcon size={12} /> 标签（可选）
+            <TagIcon size={12} /> {t('tagsOptional')}
           </label>
           {tags.length === 0 ? (
             <p className="text-[11px] text-[var(--color-text-subtle)] py-2 px-3 rounded-[var(--radius-md)] border border-dashed border-[var(--color-border)]">
-              还没有标签。到「
+              {t('tagsEmptyHint')}
               <a
                 href="/categories"
                 className="text-[var(--color-brand)] hover:underline"
@@ -318,9 +323,9 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
                   window.location.href = '/categories';
                 }}
               >
-                分类 → 标签
+                {t('tagsEmptyMid')}
               </a>
-              」卡片创建标签后，这里就能勾选，支出分析也能据此排除。
+              {t('tagsEmptyEnd')}
             </p>
           ) : (
             <div className="flex flex-wrap gap-1.5">
@@ -346,7 +351,7 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
                     />
                     {tg.name}
                     {tg.exclude_from_stats && (
-                      <span className="text-[9px] opacity-70">排除</span>
+                      <span className="text-[9px] opacity-70">{t('tagExcludedBadge')}</span>
                     )}
                   </button>
                 );
@@ -363,10 +368,10 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
 
         <div className="flex gap-2 pt-1">
           <Button type="button" variant="outline" fullWidth onClick={onClose}>
-            取消
+            {tc('cancel')}
           </Button>
           <Button type="submit" loading={loading} fullWidth disabled={!selectedCategory}>
-            {isEdit ? '保存修改' : '保存记录'}
+            {isEdit ? t('saveChanges') : t('saveRecord')}
           </Button>
         </div>
       </form>

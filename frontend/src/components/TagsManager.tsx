@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Plus, Trash2, Tag as TagIcon, Loader2, EyeOff, Eye } from 'lucide-react';
 import api from '../api/client';
 import { Button, Card, CardHeader, Input, Badge, cn } from './ui';
@@ -24,6 +25,7 @@ const TAG_PALETTE = [
 ];
 
 export default function TagsManager({ ledgerId }: Props) {
+  const { t } = useTranslation('categories');
   const [tags, setTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState('');
@@ -51,12 +53,12 @@ export default function TagsManager({ ledgerId }: Props) {
   const add = async () => {
     const name = newName.trim();
     if (!name) {
-      setError('请输入标签名');
+      setError(t('tagsNameRequired'));
       return;
     }
     // Client-side dup guard so common mistakes don't even round-trip.
-    if (tags.some((t) => t.name.toLowerCase() === name.toLowerCase())) {
-      setError('该标签已存在');
+    if (tags.some((tag) => tag.name.toLowerCase() === name.toLowerCase())) {
+      setError(t('tagsDuplicate'));
       return;
     }
     setAdding(true);
@@ -72,7 +74,7 @@ export default function TagsManager({ ledgerId }: Props) {
       setNewName('');
       setNewExclude(false);
     } catch (err: any) {
-      setError(err.response?.data?.error || '添加失败');
+      setError(err.response?.data?.error || t('tagsAddFailed'));
     } finally {
       setAdding(false);
     }
@@ -81,7 +83,7 @@ export default function TagsManager({ ledgerId }: Props) {
   const toggleExclude = async (tag: Tag) => {
     try {
       const res = await api.put(`/tags/${tag.id}`, { exclude_from_stats: !tag.exclude_from_stats });
-      setTags(tags.map((t) => (t.id === tag.id ? res.data : t)));
+      setTags(tags.map((x) => (x.id === tag.id ? res.data : x)));
     } catch (err) {
       console.error(err);
     }
@@ -90,19 +92,19 @@ export default function TagsManager({ ledgerId }: Props) {
   const changeColor = async (tag: Tag, color: string) => {
     try {
       const res = await api.put(`/tags/${tag.id}`, { color });
-      setTags(tags.map((t) => (t.id === tag.id ? res.data : t)));
+      setTags(tags.map((x) => (x.id === tag.id ? res.data : x)));
     } catch (err) {
       console.error(err);
     }
   };
 
   const remove = async (tag: Tag) => {
-    if (!confirm(`删除标签「${tag.name}」？这也会移除其与记录的关联。`)) return;
+    if (!confirm(t('tagsDeleteConfirm', { name: tag.name }))) return;
     try {
       await api.delete(`/tags/${tag.id}`);
-      setTags(tags.filter((t) => t.id !== tag.id));
+      setTags(tags.filter((x) => x.id !== tag.id));
     } catch (err: any) {
-      alert(err.response?.data?.error || '删除失败');
+      alert(err.response?.data?.error || t('tagsDeleteFailed'));
     }
   };
 
@@ -112,32 +114,29 @@ export default function TagsManager({ ledgerId }: Props) {
         icon={<TagIcon size={16} />}
         title={
           <span className="flex items-center gap-2">
-            标签
+            {t('tagsTitle')}
             <Badge tone="info">{tags.length}</Badge>
           </span>
         }
       />
-      <p className="text-[11px] text-[var(--color-text-subtle)] mt-1">
-        给一笔消费打标签（如 报销、转账、家庭），打开「默认排除」后支出分析会忽略它。
-        Telegram 里可在消息末尾用 <code>l:报销</code> 或 <code>标签:公账</code> 打标签。
-      </p>
+      <p className="text-[11px] text-[var(--color-text-subtle)] mt-1">{t('tagsDesc')}</p>
 
       {/* Add row */}
       <div className="mt-4 space-y-2">
         <div className="flex flex-wrap items-end gap-2">
           <div className="flex-1 min-w-[180px]">
             <Input
-              label="新标签"
+              label={t('tagsNewLabel')}
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              placeholder="例如：报销、转账、家庭"
+              placeholder={t('tagsPlaceholder')}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !adding) add();
               }}
             />
           </div>
           <div>
-            <p className="text-[11px] font-medium text-[var(--color-text-muted)] mb-1.5">颜色</p>
+            <p className="text-[11px] font-medium text-[var(--color-text-muted)] mb-1.5">{t('tagsColor')}</p>
             <div className="flex gap-1">
               {TAG_PALETTE.slice(0, 6).map((c) => (
                 <button
@@ -163,7 +162,7 @@ export default function TagsManager({ ledgerId }: Props) {
               onChange={(e) => setNewExclude(e.target.checked)}
               className="accent-[var(--color-brand)]"
             />
-            默认排除
+            {t('tagsExcludeDefault')}
           </label>
           <Button
             size="sm"
@@ -172,7 +171,7 @@ export default function TagsManager({ ledgerId }: Props) {
             loading={adding}
             className="mb-1"
           >
-            添加
+            {t('tagsAdd')}
           </Button>
         </div>
         {error && (
@@ -188,7 +187,7 @@ export default function TagsManager({ ledgerId }: Props) {
           </div>
         ) : tags.length === 0 ? (
           <p className="text-xs text-[var(--color-text-subtle)] py-6 text-center">
-            还没有标签。添加一个试试，比如「报销」或「转账」。
+            {t('tagsEmpty')}
           </p>
         ) : (
           <ul className="flex flex-wrap gap-2">
@@ -205,7 +204,7 @@ export default function TagsManager({ ledgerId }: Props) {
                 <span
                   className="w-2.5 h-2.5 rounded-full relative"
                   style={{ backgroundColor: tag.color }}
-                  title="点击换色"
+                  title={t('tagsChangeColor')}
                   onClick={() => {
                     // Cycle to the next palette color for quick edits without a modal.
                     const idx = TAG_PALETTE.indexOf(tag.color);
@@ -217,14 +216,14 @@ export default function TagsManager({ ledgerId }: Props) {
                 <span className="text-xs">{tag.name}</span>
                 <button
                   onClick={() => toggleExclude(tag)}
-                  title={tag.exclude_from_stats ? '当前默认排除，点击恢复统计' : '默认统计中，点击设为排除'}
+                  title={tag.exclude_from_stats ? t('tagsToggleExcludeOn') : t('tagsToggleExcludeOff')}
                   className="w-6 h-6 flex items-center justify-center rounded-full text-[var(--color-text-subtle)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text)] transition-colors"
                 >
                   {tag.exclude_from_stats ? <EyeOff size={12} /> : <Eye size={12} />}
                 </button>
                 <button
                   onClick={() => remove(tag)}
-                  title="删除标签"
+                  title={t('tagsDeleteTitle')}
                   className="w-6 h-6 flex items-center justify-center rounded-full text-[var(--color-text-subtle)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] transition-colors"
                 >
                   <Trash2 size={11} />

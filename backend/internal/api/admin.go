@@ -101,7 +101,7 @@ func GetAuditLogs(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"items":     FormatAuditLogItems(rows),
+		"items":     FormatAuditLogItems(rows, Locale(c)),
 		"total":     total,
 		"page":      page,
 		"page_size": pageSize,
@@ -186,8 +186,9 @@ func AdminCreateUser(c *gin.Context) {
 		user.Nickname = user.Username
 	}
 
+	loc := Locale(c)
 	personalLedger := models.Ledger{
-		Name:    "我的账本",
+		Name:    defaultPersonalLedgerName(loc),
 		OwnerID: user.ID,
 		Type:    "personal",
 	}
@@ -196,7 +197,7 @@ func AdminCreateUser(c *gin.Context) {
 		if err := tx.Create(&user).Error; err != nil {
 			return err
 		}
-		return bootstrapPersonalLedgerForUser(tx, user.ID, &personalLedger)
+		return bootstrapPersonalLedgerForUser(tx, user.ID, &personalLedger, loc)
 	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "create user failed: " + err.Error()})
 		return

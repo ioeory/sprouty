@@ -1,0 +1,6 @@
+{
+  "familyBadge": "家庭 · {{count}} 人",
+  "personalBadge": "个人 · {{count}} 人",
+  "subLedger": "子账 · {{name}}",
+  "noLedgers": "暂无账本"
+}

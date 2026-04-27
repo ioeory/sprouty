@@ -20,6 +20,7 @@ func main() {
 
 	// Setup Router
 	r := gin.Default()
+	r.Use(api.LocaleMiddleware())
 
 	// Public routes
 	auth := r.Group("/api/auth")
@@ -49,6 +50,8 @@ func main() {
 	protected := r.Group("/api")
 	protected.Use(api.AuthMiddleware())
 	{
+		protected.PUT("/user/locale", api.PutUserLocale)
+
 		// Ledger routes
 		protected.GET("/ledgers", api.GetLedgers)
 		protected.POST("/ledgers", api.CreateLedger)

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Outlet, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -17,10 +18,11 @@ import {
   Shield,
   Pencil,
 } from 'lucide-react';
-import { Sidebar, type NavItem, Button, ThemeToggle, Modal, Input } from './ui';
+import { Sidebar, type NavItem, Button, ThemeToggle, Modal, Input, cn } from './ui';
 import BotIntegrationModal from './BotIntegrationModal';
 import AddRecordModal from './AddRecordModal';
 import api from '../api/client';
+import i18n, { setAppLocale } from '../i18n';
 
 export interface LedgerLinkedPersonal {
   id: string;
@@ -58,17 +60,10 @@ export function useLayout() {
   return ctx;
 }
 
-const BASE_NAV: NavItem[] = [
-  { to: '/', label: '仪表盘', icon: <LayoutDashboard size={16} /> },
-  { to: '/transactions', label: '流水记录', icon: <Receipt size={16} /> },
-  { to: '/projects', label: '项目预算', icon: <FolderKanban size={16} /> },
-  { to: '/categories', label: '分类管理', icon: <Tags size={16} /> },
-  { to: '/members', label: '成员共享', icon: <Users size={16} /> },
-];
-
 const SIDEBAR_COLLAPSED_KEY = 'sprouts_sidebar_collapsed';
 
 export default function AppLayout() {
+  const { t } = useTranslation(['nav', 'common', 'ledger']);
   const navigate = useNavigate();
   const [ledgers, setLedgers] = useState<Ledger[]>([]);
   const [currentLedger, setCurrentLedgerState] = useState<Ledger | null>(null);
@@ -86,19 +81,47 @@ export default function AppLayout() {
   const [renameSaving, setRenameSaving] = useState(false);
   const [renameErr, setRenameErr] = useState('');
 
-  const navItems: NavItem[] = React.useMemo(() => {
-    if (user?.role === 'admin') {
-      return [
-        ...BASE_NAV,
-        { to: '/admin', label: '系统管理', icon: <Shield size={16} /> },
-      ];
+  const persistAppLocale = React.useCallback(async (lng: 'zh-CN' | 'en') => {
+    setAppLocale(lng);
+    if (!localStorage.getItem('sprouts_token')) return;
+    const preferred_locale = lng === 'en' ? 'en' : 'zh-CN';
+    try {
+      await api.put('/user/locale', { preferred_locale });
+      const raw = localStorage.getItem('sprouts_user');
+      if (raw) {
+        const u = JSON.parse(raw) as Record<string, unknown>;
+        u.preferred_locale = preferred_locale;
+        localStorage.setItem('sprouts_user', JSON.stringify(u));
+      }
+    } catch {
+      /* ignore network errors */
     }
-    return BASE_NAV;
-  }, [user?.role]);
+  }, []);
+
+  const navItems: NavItem[] = React.useMemo(() => {
+    const base: NavItem[] = [
+      { to: '/', label: t('nav:dashboard'), icon: <LayoutDashboard size={16} /> },
+      { to: '/transactions', label: t('nav:transactions'), icon: <Receipt size={16} /> },
+      { to: '/projects', label: t('nav:projects'), icon: <FolderKanban size={16} /> },
+      { to: '/categories', label: t('nav:categories'), icon: <Tags size={16} /> },
+      { to: '/members', label: t('nav:members'), icon: <Users size={16} /> },
+    ];
+    if (user?.role === 'admin') {
+      return [...base, { to: '/admin', label: t('nav:admin'), icon: <Shield size={16} /> }];
+    }
+    return base;
+  }, [user?.role, t]);
 
   useEffect(() => {
     const raw = localStorage.getItem('sprouts_user');
-    if (raw) setUser(JSON.parse(raw));
+    if (raw) {
+      const u = JSON.parse(raw) as { preferred_locale?: string };
+      setUser(u);
+      const pl = u?.preferred_locale;
+      if (pl === 'en' || pl === 'zh-CN') {
+        setAppLocale(pl === 'en' ? 'en' : 'zh-CN');
+      }
+    }
     refreshLedgers();
   }, []);
 
@@ -148,8 +171,8 @@ export default function AppLayout() {
         <Sprout size={16} />
       </div>
       <div className="min-w-0">
-        <p className="text-sm font-semibold text-[var(--color-text)] leading-tight truncate">Sprouty</p>
-        <p className="text-[11px] text-[var(--color-text-subtle)] leading-tight">萌记・家庭账本</p>
+        <p className="text-sm font-semibold text-[var(--color-text)] leading-tight truncate">{t('common:appName')}</p>
+        <p className="text-[11px] text-[var(--color-text-subtle)] leading-tight">{t('common:appTagline')}</p>
       </div>
     </div>
   );
@@ -166,14 +189,14 @@ export default function AppLayout() {
       className="w-full flex items-center gap-2.5 px-3 h-9 rounded-[var(--radius-md)] text-sm text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)] transition-colors"
     >
       <SettingsIcon size={16} />
-      <span className="flex-1 text-left">Telegram Bot</span>
+      <span className="flex-1 text-left">{t('nav:telegramBot')}</span>
     </button>
   );
 
   const footerCollapsed = (
     <button
       onClick={() => setShowBot(true)}
-      title="Telegram Bot"
+      title={t('nav:telegramBot')}
       className="w-full flex items-center justify-center h-9 rounded-[var(--radius-md)] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)] transition-colors"
     >
       <SettingsIcon size={16} />
@@ -210,7 +233,7 @@ export default function AppLayout() {
               <button
                 onClick={() => setSidebarOpen(true)}
                 className="lg:hidden flex items-center justify-center w-9 h-9 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-muted)] text-[var(--color-text-muted)]"
-                aria-label="打开侧边栏"
+                aria-label={t('common:openSidebar')}
               >
                 <Menu size={16} />
               </button>
@@ -219,8 +242,8 @@ export default function AppLayout() {
               <button
                 onClick={() => setSidebarCollapsed((v) => !v)}
                 className="hidden lg:flex items-center justify-center w-9 h-9 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-muted)] text-[var(--color-text-muted)]"
-                aria-label={sidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'}
-                title={sidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'}
+                aria-label={sidebarCollapsed ? t('common:expandSidebar') : t('common:collapseSidebar')}
+                title={sidebarCollapsed ? t('common:expandSidebar') : t('common:collapseSidebar')}
               >
                 {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
               </button>
@@ -232,14 +255,14 @@ export default function AppLayout() {
                   className="flex items-center gap-1.5 sm:gap-2 h-9 min-w-0 max-w-full pl-2 pr-2 sm:px-3 rounded-[var(--radius-md)] text-sm border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-muted)] text-[var(--color-text)] transition-colors"
                 >
                   <span className="font-medium truncate max-w-[min(7.5rem,28vw)] sm:max-w-[140px]">
-                    {currentLedger?.name || '选择账本'}
+                    {currentLedger?.name || t('common:selectLedger')}
                   </span>
                   <ChevronDown size={14} className="text-[var(--color-text-subtle)] shrink-0" />
                 </button>
                 {currentLedger && user?.id && currentLedger.owner_id === user.id && (
                   <button
                     type="button"
-                    title="重命名账本"
+                    title={t('common:renameLedger')}
                     onClick={() => {
                       setRenameValue(currentLedger.name);
                       setRenameErr('');
@@ -268,8 +291,8 @@ export default function AppLayout() {
                             <span className="truncate">{l.name}</span>
                             <span className="text-[10px] text-[var(--color-text-subtle)] ml-3 shrink-0">
                               {l.type === 'family'
-                                ? `家庭 · ${l.member_count ?? '?'} 人`
-                                : `个人 · ${l.member_count ?? 1} 人`}
+                                ? t('ledger:familyBadge', { count: l.member_count ?? '?' })
+                                : t('ledger:personalBadge', { count: l.member_count ?? 1 })}
                             </span>
                           </button>
                           {l.type === 'family' &&
@@ -290,7 +313,7 @@ export default function AppLayout() {
                                 >
                                   <span className="truncate">
                                     <span className="text-[var(--color-text-subtle)] mr-1">└</span>
-                                    子账 · {sub.name}
+                                    {t('ledger:subLedger', { name: sub.name })}
                                   </span>
                                 </button>
                               );
@@ -298,7 +321,7 @@ export default function AppLayout() {
                         </React.Fragment>
                       ))}
                       {!rootLedgers.length && (
-                        <p className="px-3 py-4 text-xs text-[var(--color-text-subtle)]">暂无账本</p>
+                        <p className="px-3 py-4 text-xs text-[var(--color-text-subtle)]">{t('ledger:noLedgers')}</p>
                       )}
                     </div>
                   </>
@@ -308,17 +331,47 @@ export default function AppLayout() {
 
             <div className="flex items-center gap-1 sm:gap-2 shrink-0">
               <ThemeToggle className="hidden md:inline-flex" compact />
+              <div
+                className="flex items-center gap-0.5 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-0.5 shrink-0"
+                role="group"
+                aria-label={t('common:language')}
+              >
+                <button
+                  type="button"
+                  onClick={() => void persistAppLocale('zh-CN')}
+                  className={cn(
+                    'px-1.5 py-1 rounded-[var(--radius-sm)] text-[10px] font-medium transition-colors',
+                    (i18n.language || '').startsWith('zh')
+                      ? 'bg-[var(--color-brand-soft)] text-[var(--color-brand)]'
+                      : 'text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]',
+                  )}
+                >
+                  {t('common:lang_zh')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void persistAppLocale('en')}
+                  className={cn(
+                    'px-1.5 py-1 rounded-[var(--radius-sm)] text-[10px] font-medium transition-colors',
+                    (i18n.language || '').startsWith('en')
+                      ? 'bg-[var(--color-brand-soft)] text-[var(--color-brand)]'
+                      : 'text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]',
+                  )}
+                >
+                  {t('common:lang_en')}
+                </button>
+              </div>
               <Button
                 size="sm"
                 type="button"
-                title="记一笔"
-                aria-label="记一笔"
+                title={t('common:record')}
+                aria-label={t('common:record')}
                 leftIcon={<Plus size={18} strokeWidth={2.25} className="sm:size-[14px]" />}
                 onClick={() => setShowAdd(true)}
                 disabled={!currentLedger}
                 className="shrink-0 max-sm:h-9 max-sm:w-9 max-sm:min-w-9 max-sm:px-0 max-sm:gap-0 max-sm:justify-center"
               >
-                <span className="hidden sm:inline">记一笔</span>
+                <span className="hidden sm:inline">{t('common:record')}</span>
               </Button>
               <div className="flex items-center gap-1 sm:gap-2 pl-1.5 sm:pl-2 ml-0.5 sm:ml-1 border-l border-[var(--color-border)]">
                 <div className="w-8 h-8 rounded-full bg-[var(--color-brand-soft)] text-[var(--color-brand)] flex items-center justify-center text-xs font-semibold">
@@ -328,11 +381,11 @@ export default function AppLayout() {
                   <p className="text-xs font-medium text-[var(--color-text)] leading-tight">
                     {user?.nickname || user?.username}
                   </p>
-                  <p className="text-[10px] text-[var(--color-text-subtle)] leading-tight">已登录</p>
+                  <p className="text-[10px] text-[var(--color-text-subtle)] leading-tight">{t('common:loggedIn')}</p>
                 </div>
                 <button
                   onClick={handleLogout}
-                  title="退出登录"
+                  title={t('common:logout')}
                   className="ml-1 w-8 h-8 flex items-center justify-center rounded-[var(--radius-md)] text-[var(--color-text-subtle)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] transition-colors"
                 >
                   <LogOut size={14} />
@@ -350,11 +403,11 @@ export default function AppLayout() {
           <Modal
             open={renameOpen}
             onClose={() => !renameSaving && setRenameOpen(false)}
-            title="重命名账本"
+            title={t('common:renameLedger')}
             footer={
               <div className="flex justify-end gap-2">
                 <Button variant="ghost" size="sm" disabled={renameSaving} onClick={() => setRenameOpen(false)}>
-                  取消
+                  {t('common:cancel')}
                 </Button>
                 <Button
                   size="sm"
@@ -362,7 +415,7 @@ export default function AppLayout() {
                   onClick={async () => {
                     const name = renameValue.trim();
                     if (!name) {
-                      setRenameErr('名称不能为空');
+                      setRenameErr(t('common:nameRequired'));
                       return;
                     }
                     setRenameSaving(true);
@@ -375,13 +428,13 @@ export default function AppLayout() {
                       );
                       setRenameOpen(false);
                     } catch (e: any) {
-                      setRenameErr(e.response?.data?.error || '保存失败');
+                      setRenameErr(e.response?.data?.error || t('common:saveFailed'));
                     } finally {
                       setRenameSaving(false);
                     }
                   }}
                 >
-                  保存
+                  {t('common:save')}
                 </Button>
               </div>
             }
@@ -389,7 +442,7 @@ export default function AppLayout() {
             {renameErr && (
               <p className="text-xs text-[var(--color-danger)] mb-2">{renameErr}</p>
             )}
-            <Input label="账本名称" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} autoFocus />
+            <Input label={t('common:ledgerName')} value={renameValue} onChange={(e) => setRenameValue(e.target.value)} autoFocus />
           </Modal>
         )}
 

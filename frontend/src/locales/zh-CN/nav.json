@@ -1,0 +1,9 @@
+{
+  "dashboard": "仪表盘",
+  "transactions": "流水记录",
+  "projects": "项目预算",
+  "categories": "分类管理",
+  "members": "成员共享",
+  "admin": "系统管理",
+  "telegramBot": "Telegram Bot"
+}

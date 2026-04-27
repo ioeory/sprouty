@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import api from '../api/client';
 import {
   Modal,
@@ -26,12 +27,14 @@ interface Props {
   ledgerId: string;
   initial?: ProjectFormInitial;
   onClose: () => void;
-  onSuccess: (projectId: string) => void;
+  onSuccess: (projectId?: string) => void;
 }
 
 const toDateInput = (v?: string | null) => (v ? new Date(v).toISOString().split('T')[0] : '');
 
 export default function ProjectFormModal({ open, ledgerId, initial, onClose, onSuccess }: Props) {
+  const { t } = useTranslation('modals');
+  const { t: tc } = useTranslation('common');
   const isEdit = !!initial?.id;
   const [name, setName] = useState(initial?.name ?? '');
   const [icon, setIcon] = useState(initial?.icon ?? 'Briefcase');
@@ -57,7 +60,7 @@ export default function ProjectFormModal({ open, ledgerId, initial, onClose, onS
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      setError('请输入项目名称');
+      setError(t('projectNameRequired'));
       return;
     }
     setLoading(true);
@@ -82,7 +85,7 @@ export default function ProjectFormModal({ open, ledgerId, initial, onClose, onS
       onSuccess(res.data?.id || initial?.id || '');
       onClose();
     } catch (err: any) {
-      setError(err.response?.data?.error || '保存失败');
+      setError(err.response?.data?.error || t('projectSaveFailed'));
     } finally {
       setLoading(false);
     }
@@ -92,8 +95,8 @@ export default function ProjectFormModal({ open, ledgerId, initial, onClose, onS
     <Modal
       open={open}
       onClose={onClose}
-      title={isEdit ? '编辑项目' : '新建项目'}
-      description={isEdit ? '修改项目基本信息' : '用一个项目把一段支出打包，比如旅行、装修'}
+      title={isEdit ? t('projectEditTitle') : t('projectCreateTitle')}
+      description={isEdit ? t('projectEditDesc') : t('projectCreateDesc')}
       size="md"
     >
       <form onSubmit={handleSubmit} className="space-y-5">
@@ -103,14 +106,14 @@ export default function ProjectFormModal({ open, ledgerId, initial, onClose, onS
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="项目名称，如「2026 暑期东京行」"
+              placeholder={t('projectNamePlaceholder')}
               autoFocus
             />
           </div>
         </div>
 
         <div>
-          <p className="text-xs font-medium text-[var(--color-text-muted)] mb-2">颜色</p>
+          <p className="text-xs font-medium text-[var(--color-text-muted)] mb-2">{t('color')}</p>
           <div className="flex flex-wrap gap-1.5">
             {CATEGORY_COLORS.map((c) => (
               <button
@@ -129,7 +132,7 @@ export default function ProjectFormModal({ open, ledgerId, initial, onClose, onS
         </div>
 
         <div>
-          <p className="text-xs font-medium text-[var(--color-text-muted)] mb-2">图标</p>
+          <p className="text-xs font-medium text-[var(--color-text-muted)] mb-2">{t('icon')}</p>
           <div className="grid grid-cols-8 gap-1.5 max-h-44 overflow-y-auto p-1">
             {ICON_NAMES.map((n) => (
               <button
@@ -152,7 +155,7 @@ export default function ProjectFormModal({ open, ledgerId, initial, onClose, onS
 
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-[var(--color-text-muted)]">开始日期</label>
+            <label className="text-xs font-medium text-[var(--color-text-muted)]">{t('startDate')}</label>
             <input
               type="date"
               value={startDate}
@@ -161,7 +164,7 @@ export default function ProjectFormModal({ open, ledgerId, initial, onClose, onS
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-[var(--color-text-muted)]">结束日期</label>
+            <label className="text-xs font-medium text-[var(--color-text-muted)]">{t('endDate')}</label>
             <input
               type="date"
               value={endDate}
@@ -172,12 +175,12 @@ export default function ProjectFormModal({ open, ledgerId, initial, onClose, onS
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-[var(--color-text-muted)]">备注</label>
+          <label className="text-xs font-medium text-[var(--color-text-muted)]">{t('remark')}</label>
           <textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
             rows={2}
-            placeholder="可选：这个项目的背景说明"
+            placeholder={t('remarkPlaceholder')}
             className="w-full px-3 py-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] text-sm outline-none focus:border-[var(--color-brand)] focus:ring-2 focus:ring-[var(--color-brand)]/20"
           />
         </div>
@@ -190,10 +193,10 @@ export default function ProjectFormModal({ open, ledgerId, initial, onClose, onS
 
         <div className="flex gap-2 pt-1">
           <Button type="button" variant="outline" fullWidth onClick={onClose}>
-            取消
+            {tc('cancel')}
           </Button>
           <Button type="submit" loading={loading} fullWidth>
-            {isEdit ? '保存修改' : '创建项目'}
+            {isEdit ? t('saveProjectEdit') : t('createProject')}
           </Button>
         </div>
       </form>

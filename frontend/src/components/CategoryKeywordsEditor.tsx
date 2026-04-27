@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { X, Plus, Loader2 } from 'lucide-react';
 import api from '../api/client';
 import { cn } from './ui';
@@ -19,6 +20,7 @@ interface Props {
 // keywords with an inline add-input. It mutates the parent list via `onChange`
 // so the parent keeps one source of truth for the category's keywords.
 export default function CategoryKeywordsEditor({ categoryId, keywords, onChange, compact }: Props) {
+  const { t } = useTranslation('categories');
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -28,7 +30,7 @@ export default function CategoryKeywordsEditor({ categoryId, keywords, onChange,
     if (!value) return;
     // Client-side dup check to avoid a round-trip for the obvious case
     if (keywords.some((k) => k.keyword.toLowerCase() === value.toLowerCase())) {
-      setError('关键字已存在');
+      setError(t('kwDuplicate'));
       return;
     }
     setSaving(true);
@@ -41,9 +43,9 @@ export default function CategoryKeywordsEditor({ categoryId, keywords, onChange,
       const serverMsg = err.response?.data?.error;
       const existing = err.response?.data?.existing_category;
       if (existing) {
-        setError(`该关键字已分配给「${existing}」`);
+        setError(t('kwAssigned', { name: existing }));
       } else {
-        setError(serverMsg || '添加失败');
+        setError(serverMsg || t('kwAddFailed'));
       }
     } finally {
       setSaving(false);
@@ -55,7 +57,7 @@ export default function CategoryKeywordsEditor({ categoryId, keywords, onChange,
       await api.delete(`/category-keywords/${kwId}`);
       onChange(keywords.filter((k) => k.id !== kwId));
     } catch (err: any) {
-      setError(err.response?.data?.error || '删除失败');
+      setError(err.response?.data?.error || t('kwDeleteFailed'));
     }
   };
 
@@ -72,7 +74,7 @@ export default function CategoryKeywordsEditor({ categoryId, keywords, onChange,
               type="button"
               onClick={() => removeKeyword(kw.id)}
               className="w-3.5 h-3.5 inline-flex items-center justify-center rounded-full text-[var(--color-text-subtle)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)]"
-              aria-label={`删除关键字 ${kw.keyword}`}
+              aria-label={t('kwDeleteAria', { keyword: kw.keyword })}
             >
               <X size={10} />
             </button>
@@ -91,7 +93,7 @@ export default function CategoryKeywordsEditor({ categoryId, keywords, onChange,
                 addKeyword();
               }
             }}
-            placeholder="加关键字…"
+            placeholder={t('kwPlaceholder')}
             className="h-6 px-2 text-[11px] rounded-full border border-dashed border-[var(--color-border)] bg-transparent text-[var(--color-text)] placeholder:text-[var(--color-text-subtle)] focus:outline-none focus:border-[var(--color-brand)] w-24"
           />
           {draft && (
@@ -100,7 +102,7 @@ export default function CategoryKeywordsEditor({ categoryId, keywords, onChange,
               disabled={saving}
               onClick={addKeyword}
               className="w-5 h-5 inline-flex items-center justify-center rounded-full bg-[var(--color-brand)] text-white hover:opacity-90 disabled:opacity-60"
-              aria-label="添加关键字"
+              aria-label={t('kwAddAria')}
             >
               {saving ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
             </button>

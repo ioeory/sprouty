@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Bot, MessageSquare, Copy, CheckCircle, Smartphone, RefreshCw } from 'lucide-react';
 import api from '../api/client';
 import { copyToClipboard } from '../lib/copyToClipboard';
@@ -20,6 +21,7 @@ interface Status {
 }
 
 const BotIntegrationModal: React.FC<Props> = ({ open, onClose }) => {
+  const { t } = useTranslation('bot');
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<Status | null>(null);
   const [pin, setPin] = useState<string | null>(null);
@@ -76,30 +78,34 @@ const BotIntegrationModal: React.FC<Props> = ({ open, onClose }) => {
       title={
         <span className="flex items-center gap-2">
           <Bot size={16} className="text-[var(--color-brand)]" />
-          Telegram 机器人
+          {t('title')}
         </span>
       }
-      description="绑定后可用一句话通过 Telegram 记账"
+      description={t('description')}
     >
       <div className="space-y-5">
         {/* Status */}
         <div className="flex items-center justify-between p-3 rounded-[var(--radius-md)] bg-[var(--color-surface-muted)] border border-[var(--color-border)]">
-          <span className="text-xs text-[var(--color-text-muted)]">连接状态</span>
+          <span className="text-xs text-[var(--color-text-muted)]">{t('status')}</span>
           {status?.connected ? (
             <Badge tone="success" dot>
-              <CheckCircle size={12} /> 已连接
+              <CheckCircle size={12} /> {t('connected')}
             </Badge>
           ) : (
-            <Badge tone="neutral" dot>未绑定</Badge>
+            <Badge tone="neutral" dot>
+              {t('notBound')}
+            </Badge>
           )}
         </div>
 
         {!pin && !status?.connected && (
           <>
             <p className="text-sm text-[var(--color-text-muted)] leading-relaxed">
-              通过 Telegram 发送消息即可快速记账。例如发送
-              <code className="mx-1 px-1.5 py-0.5 rounded bg-[var(--color-surface-muted)] font-mono text-xs">咖啡 15</code>
-              就会自动记录一笔支出。
+              {t('intro')}
+              <code className="mx-1 px-1.5 py-0.5 rounded bg-[var(--color-surface-muted)] font-mono text-xs">
+                {t('introExampleCode')}
+              </code>
+              {t('introExample')}
             </p>
             <Button
               fullWidth
@@ -107,7 +113,7 @@ const BotIntegrationModal: React.FC<Props> = ({ open, onClose }) => {
               leftIcon={<Smartphone size={16} />}
               onClick={generatePin}
             >
-              生成绑定 PIN
+              {t('generatePin')}
             </Button>
           </>
         )}
@@ -115,13 +121,13 @@ const BotIntegrationModal: React.FC<Props> = ({ open, onClose }) => {
         {pin && (
           <div className="space-y-4 animate-slide-up">
             <div className="p-5 rounded-[var(--radius-lg)] bg-[var(--color-brand-soft)] border border-[var(--color-brand)]/20 text-center">
-              <p className="text-[11px] text-[var(--color-brand)] uppercase tracking-widest mb-2">你的绑定 PIN</p>
+              <p className="text-[11px] text-[var(--color-brand)] uppercase tracking-widest mb-2">{t('yourPin')}</p>
               <div className="text-3xl font-mono font-semibold text-[var(--color-brand)] tracking-[0.4em]">{pin}</div>
-              <p className="text-[11px] text-[var(--color-text-subtle)] mt-2">5 分钟内有效</p>
+              <p className="text-[11px] text-[var(--color-text-subtle)] mt-2">{t('pinValid5m')}</p>
             </div>
 
             <div className="space-y-2">
-              <p className="text-xs font-medium text-[var(--color-text-muted)]">下一步：将 PIN 发送给机器人</p>
+              <p className="text-xs font-medium text-[var(--color-text-muted)]">{t('nextStep')}</p>
               <div className="flex gap-2">
                 <a
                   href={tgUrl}
@@ -130,48 +136,52 @@ const BotIntegrationModal: React.FC<Props> = ({ open, onClose }) => {
                   className="flex-1 h-10 px-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] text-sm flex items-center justify-center gap-1.5 hover:bg-[var(--color-surface-muted)] transition-colors"
                 >
                   <MessageSquare size={14} />
-                  {botUsername ? `@${botUsername}` : '打开 Telegram'}
+                  {botUsername ? `@${botUsername}` : t('openTg')}
                 </a>
                 <button
                   onClick={copyCommand}
                   className="h-10 px-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] text-sm flex items-center gap-1.5 hover:bg-[var(--color-surface-muted)] transition-colors"
-                  title="复制 /bind 命令"
+                  title={t('copyBindTitle')}
                 >
                   {copied ? (
                     <>
-                      <CheckCircle size={14} className="text-[var(--color-success)]" /> 已复制
+                      <CheckCircle size={14} className="text-[var(--color-success)]" /> {t('copied')}
                     </>
                   ) : (
                     <>
-                      <Copy size={14} /> 复制命令
+                      <Copy size={14} /> {t('copyCmd')}
                     </>
                   )}
                 </button>
               </div>
               <p className="text-[11px] text-[var(--color-text-subtle)]">
-                粘贴发送 <code className="px-1 py-0.5 rounded bg-[var(--color-surface-muted)] font-mono">/bind {pin}</code> 即可完成绑定
+                {t('pasteHint')}{' '}
+                <code className="px-1 py-0.5 rounded bg-[var(--color-surface-muted)] font-mono">/bind {pin}</code>{' '}
+                {t('pasteHintEnd')}
               </p>
               {copyFailed && (
-                <p className="text-[11px] text-[var(--color-danger)]">
-                  无法自动复制（例如非 HTTPS 访问）。请手动复制上方命令发送给机器人。
-                </p>
+                <p className="text-[11px] text-[var(--color-danger)]">{t('copyManual')}</p>
               )}
             </div>
 
             <Button variant="ghost" fullWidth leftIcon={<RefreshCw size={14} />} onClick={generatePin} loading={loading}>
-              重新生成 PIN
+              {t('regeneratePin')}
             </Button>
           </div>
         )}
 
         {status?.connected && (
           <div className="p-4 rounded-[var(--radius-md)] bg-[var(--color-success-soft)] border border-[var(--color-success)]/20 space-y-2">
-            <p className="text-sm font-medium text-[var(--color-success)]">账号已绑定</p>
+            <p className="text-sm font-medium text-[var(--color-success)]">{t('boundTitle')}</p>
             <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
-              你现在可以向机器人发送消息记账，例如：
-              <code className="mx-1 px-1.5 py-0.5 rounded bg-[var(--color-surface)] font-mono text-[var(--color-brand)]">咖啡 15</code>
-              或
-              <code className="mx-1 px-1.5 py-0.5 rounded bg-[var(--color-surface)] font-mono text-[var(--color-brand)]">晚餐 50 聚餐</code>
+              {t('boundHint')}
+              <code className="mx-1 px-1.5 py-0.5 rounded bg-[var(--color-surface)] font-mono text-[var(--color-brand)]">
+                {t('boundExample1')}
+              </code>
+              {t('boundOr')}
+              <code className="mx-1 px-1.5 py-0.5 rounded bg-[var(--color-surface)] font-mono text-[var(--color-brand)]">
+                {t('boundExample2')}
+              </code>
             </p>
           </div>
         )}

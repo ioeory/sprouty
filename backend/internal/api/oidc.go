@@ -40,14 +40,14 @@ func OIDCConfig(c *gin.Context) {
 // OIDCLogin redirects to the IdP authorization endpoint.
 func OIDCLogin(c *gin.Context) {
 	if !oidcConfigured() {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "OIDC 未配置"})
+		c.JSON(http.StatusServiceUnavailable, ErrorJSON(c, "oidc.not_configured"))
 		return
 	}
 	ctx := context.Background()
 	issuer := strings.TrimRight(strings.TrimSpace(os.Getenv("OIDC_ISSUER")), "/")
 	provider, err := oidc.NewProvider(ctx, issuer)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "OIDC provider: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, ErrorJSON(c, "oidc.provider_init_failed"))
 		return
 	}
 
@@ -79,23 +79,27 @@ func OIDCLogin(c *gin.Context) {
 // OIDCCallback handles redirect from IdP, issues one-time exchange code.
 func OIDCCallback(c *gin.Context) {
 	if !oidcConfigured() {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "OIDC 未配置"})
+		c.JSON(http.StatusServiceUnavailable, ErrorJSON(c, "oidc.not_configured"))
 		return
 	}
 	stateCookie, err := c.Cookie(oidcStateCookie)
 	if err != nil || stateCookie == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "missing state cookie"})
+		c.JSON(http.StatusBadRequest, ErrorJSON(c, "oidc.missing_state_cookie"))
 		return
 	}
 	c.SetCookie(oidcStateCookie, "", -1, "/", "", false, true)
 
 	if c.Query("state") != stateCookie {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "state mismatch"})
+		c.JSON(http.StatusBadRequest, ErrorJSON(c, "oidc.state_mismatch"))
 		return
 	}
 	code := c.Query("code")
 	if code == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "missing code", "detail": c.Query("error")})
+		body := ErrorJSON(c, "oidc.missing_code")
+		if q := c.Query("error"); q != "" {
+			body["detail"] = q
+		}
+		c.JSON(http.StatusBadRequest, body)
 		return
 	}
 
@@ -103,7 +107,7 @@ func OIDCCallback(c *gin.Context) {
 	issuer := strings.TrimRight(strings.TrimSpace(os.Getenv("OIDC_ISSUER")), "/")
 	provider, err := oidc.NewProvider(ctx, issuer)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, ErrorJSON(c, "oidc.provider_init_failed"))
 		return
 	}
 
@@ -120,20 +124,20 @@ func OIDCCallback(c *gin.Context) {
 
 	tok, err := oauth2Cfg.Exchange(ctx, code)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "token exchange: " + err.Error()})
+		c.JSON(http.StatusBadRequest, ErrorJSON(c, "oidc.token_exchange_failed"))
 		return
 	}
 
 	rawIDToken, ok := tok.Extra("id_token").(string)
 	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id_token missing in response"})
+		c.JSON(http.StatusBadRequest, ErrorJSON(c, "oidc.id_token_missing"))
 		return
 	}
 
 	verifier := provider.Verifier(&oidc.Config{ClientID: oauth2Cfg.ClientID})
 	idToken, err := verifier.Verify(ctx, rawIDToken)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "id_token invalid: " + err.Error()})
+		c.JSON(http.StatusUnauthorized, ErrorJSON(c, "oidc.id_token_invalid"))
 		return
 	}
 
@@ -144,7 +148,7 @@ func OIDCCallback(c *gin.Context) {
 		Name  string `json:"name"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "claims: " + err.Error()})
+		c.JSON(http.StatusBadRequest, ErrorJSON(c, "oidc.claims_invalid"))
 		return
 	}
 
@@ -156,10 +160,10 @@ func OIDCCallback(c *gin.Context) {
 	user, err := findOrCreateOIDCUser(c, iss, claims.Sub, claims.Email, claims.Name)
 	if err != nil {
 		if errors.Is(err, errOIDCRegistrationClosed) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "未开放新用户注册，请联系管理员"})
+			c.JSON(http.StatusForbidden, ErrorJSON(c, "auth.registration_closed"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, ErrorJSON(c, "common.internal_error"))
 		return
 	}
 
@@ -170,7 +174,7 @@ func OIDCCallback(c *gin.Context) {
 		ExpiresAt: time.Now().Add(5 * time.Minute),
 	}
 	if err := service.DB.Create(&row).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "exchange store failed"})
+		c.JSON(http.StatusInternalServerError, ErrorJSON(c, "oidc.exchange_store_failed"))
 		return
 	}
 
@@ -247,12 +251,13 @@ func createOIDCUserInTx(c *gin.Context, iss, sub, email, displayName string) (*m
 			return err
 		}
 
+		loc := Locale(c)
 		ledger := models.Ledger{
-			Name:    "我的账本",
+			Name:    defaultPersonalLedgerName(loc),
 			OwnerID: u.ID,
 			Type:    "personal",
 		}
-		if err := bootstrapPersonalLedgerForUser(tx, u.ID, &ledger); err != nil {
+		if err := bootstrapPersonalLedgerForUser(tx, u.ID, &ledger, loc); err != nil {
 			return err
 		}
 
@@ -319,32 +324,32 @@ type oidcExchangeReq struct {
 func OIDCExchange(c *gin.Context) {
 	var req oidcExchangeReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, ErrorJSON(c, "common.bad_request"))
 		return
 	}
 	service.DB.Where("expires_at < ?", time.Now()).Delete(&models.OIDCExchange{})
 
 	var row models.OIDCExchange
 	if err := service.DB.Where("code = ?", req.Code).First(&row).Error; err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "无效或已过期的登录凭证"})
+		c.JSON(http.StatusUnauthorized, ErrorJSON(c, "oidc.exchange_invalid"))
 		return
 	}
 	if time.Now().After(row.ExpiresAt) {
 		service.DB.Delete(&row)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "登录凭证已过期"})
+		c.JSON(http.StatusUnauthorized, ErrorJSON(c, "oidc.exchange_expired"))
 		return
 	}
 
 	var user models.User
 	if err := service.DB.First(&user, "id = ?", row.UserID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "user missing"})
+		c.JSON(http.StatusInternalServerError, ErrorJSON(c, "oidc.user_missing"))
 		return
 	}
 	service.DB.Delete(&row)
 
 	tokenString, err := SignAppJWT(&user)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "token"})
+		c.JSON(http.StatusInternalServerError, ErrorJSON(c, "oidc.token_sign_failed"))
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"token": tokenString, "user": userJSON(&user)})

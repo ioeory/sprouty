@@ -25,9 +25,12 @@ func auditUserDisplayName(u auditUserRef) string {
 	return u.Username
 }
 
-func auditUserTitle(u auditUserRef) string {
+func auditUserTitle(u auditUserRef, locale string) string {
 	name := auditUserDisplayName(u)
 	if u.Role == "admin" {
+		if locale == "en" {
+			return fmt.Sprintf("%s (admin)", name)
+		}
 		return fmt.Sprintf("%s（管理员）", name)
 	}
 	return name
@@ -124,49 +127,77 @@ func auditLoadLedgerMap(ids []uuid.UUID) map[uuid.UUID]models.Ledger {
 	return out
 }
 
-func auditLedgerTitle(m map[uuid.UUID]models.Ledger, id uuid.UUID) string {
+func auditLedgerTitle(m map[uuid.UUID]models.Ledger, id uuid.UUID, locale string) string {
 	if l, ok := m[id]; ok {
-		typeZh := "账本"
+		typeZh, typeEn := "账本", "ledger"
 		switch l.Type {
 		case "family":
-			typeZh = "家庭账本"
+			typeZh, typeEn = "家庭账本", "family ledger"
 		case "personal":
-			typeZh = "个人账本"
+			typeZh, typeEn = "个人账本", "personal ledger"
+		}
+		if locale == "en" {
+			return fmt.Sprintf("%s \"%s\"", typeEn, l.Name)
 		}
 		return fmt.Sprintf("%s「%s」", typeZh, l.Name)
+	}
+	if locale == "en" {
+		return fmt.Sprintf("ledger (%s)", id.String()[:8])
 	}
 	return fmt.Sprintf("账本（%s）", id.String()[:8])
 }
 
-func auditFormatLogItem(row models.AuditLog, users map[uuid.UUID]auditUserRef, ledgers map[uuid.UUID]models.Ledger) gin.H {
+func auditFormatLogItem(row models.AuditLog, users map[uuid.UUID]auditUserRef, ledgers map[uuid.UUID]models.Ledger, locale string) gin.H {
 	meta := auditParseMetaJSON(row.Metadata)
 
 	actorLabel := "系统"
+	if locale == "en" {
+		actorLabel = "System"
+	}
 	var actorRef *auditUserRef
 	if row.ActorUserID != nil {
 		if u, ok := users[*row.ActorUserID]; ok {
-			actorLabel = auditUserTitle(u)
+			actorLabel = auditUserTitle(u, locale)
 			actorRef = &u
 		} else {
-			actorLabel = fmt.Sprintf("用户（%s）", row.ActorUserID.String()[:8])
+			if locale == "en" {
+				actorLabel = fmt.Sprintf("user (%s)", row.ActorUserID.String()[:8])
+			} else {
+				actorLabel = fmt.Sprintf("用户（%s）", row.ActorUserID.String()[:8])
+			}
 		}
 	}
 
 	resourceLabel := "—"
+	if locale == "en" {
+		resourceLabel = "—"
+	}
 	if row.ResourceType == "settings" || row.ResourceType == "" {
-		resourceLabel = "系统设置"
+		if locale == "en" {
+			resourceLabel = "System settings"
+		} else {
+			resourceLabel = "系统设置"
+		}
 	}
 	if row.ResourceID != nil && *row.ResourceID != "" {
 		if id, err := uuid.Parse(*row.ResourceID); err == nil {
 			switch row.ResourceType {
 			case "user":
 				if u, ok := users[id]; ok {
-					resourceLabel = fmt.Sprintf("用户「%s」", auditUserDisplayName(u))
+					if locale == "en" {
+						resourceLabel = fmt.Sprintf("user \"%s\"", auditUserDisplayName(u))
+					} else {
+						resourceLabel = fmt.Sprintf("用户「%s」", auditUserDisplayName(u))
+					}
 				} else {
-					resourceLabel = fmt.Sprintf("用户（%s）", id.String()[:8])
+					if locale == "en" {
+						resourceLabel = fmt.Sprintf("user (%s)", id.String()[:8])
+					} else {
+						resourceLabel = fmt.Sprintf("用户（%s）", id.String()[:8])
+					}
 				}
 			case "ledger":
-				resourceLabel = auditLedgerTitle(ledgers, id)
+				resourceLabel = auditLedgerTitle(ledgers, id, locale)
 			default:
 				resourceLabel = fmt.Sprintf("%s / %s", row.ResourceType, id.String()[:8])
 			}
@@ -177,7 +208,7 @@ func auditFormatLogItem(row models.AuditLog, users map[uuid.UUID]auditUserRef, l
 		resourceLabel = row.ResourceType
 	}
 
-	summary := auditBuildSummary(row.Action, actorLabel, actorRef, resourceLabel, row, meta, users, ledgers)
+	summary := auditBuildSummary(row.Action, actorLabel, actorRef, resourceLabel, row, meta, users, ledgers, locale)
 
 	h := gin.H{
 		"id":             row.ID.String(),
@@ -220,7 +251,7 @@ func metaString(m map[string]interface{}, key string) string {
 	}
 }
 
-func metaBoolString(m map[string]interface{}, key string) string {
+func metaBoolString(m map[string]interface{}, key string, locale string) string {
 	if m == nil {
 		return ""
 	}
@@ -228,17 +259,21 @@ func metaBoolString(m map[string]interface{}, key string) string {
 	if !ok || v == nil {
 		return ""
 	}
+	on, off := "开启", "关闭"
+	if locale == "en" {
+		on, off = "on", "off"
+	}
 	switch t := v.(type) {
 	case bool:
 		if t {
-			return "开启"
+			return on
 		}
-		return "关闭"
+		return off
 	case float64:
 		if t != 0 {
-			return "开启"
+			return on
 		}
-		return "关闭"
+		return off
 	default:
 		return fmt.Sprint(t)
 	}
@@ -252,15 +287,26 @@ func auditBuildSummary(
 	meta map[string]interface{},
 	users map[uuid.UUID]auditUserRef,
 	ledgers map[uuid.UUID]models.Ledger,
+	locale string,
 ) string {
+	en := locale == "en"
 	// --- Auth ---
 	switch action {
 	case "auth.login":
+		if en {
+			return fmt.Sprintf("%s signed in with password.", actorLabel)
+		}
 		return fmt.Sprintf("%s 使用账号密码登录成功。", actorLabel)
 	case "auth.oidc_login":
 		iss := metaString(meta, "issuer")
 		if iss != "" {
+			if en {
+				return fmt.Sprintf("%s signed in with OIDC (%s).", actorLabel, iss)
+			}
 			return fmt.Sprintf("%s 通过 OIDC 登录成功（%s）。", actorLabel, iss)
+		}
+		if en {
+			return fmt.Sprintf("%s signed in with OIDC.", actorLabel)
 		}
 		return fmt.Sprintf("%s 通过 OIDC 登录成功。", actorLabel)
 	case "auth.login_failed":
@@ -268,16 +314,34 @@ func auditBuildSummary(
 		switch reason {
 		case "user_not_found":
 			u := metaString(meta, "username")
+			if en {
+				return fmt.Sprintf("Login failed: user \"%s\" not found.", u)
+			}
 			return fmt.Sprintf("登录失败：用户名「%s」不存在。", u)
 		case "bad_password":
+			if en {
+				return fmt.Sprintf("%s login failed: wrong password.", actorLabel)
+			}
 			return fmt.Sprintf("%s 登录失败：密码错误。", actorLabel)
 		case "inactive_user":
+			if en {
+				return fmt.Sprintf("%s login failed: account disabled.", actorLabel)
+			}
 			return fmt.Sprintf("%s 登录失败：账号已被禁用。", actorLabel)
 		case "oidc_only_user":
+			if en {
+				return fmt.Sprintf("%s login failed: OIDC-only account.", actorLabel)
+			}
 			return fmt.Sprintf("%s 登录失败：该账号仅支持 OIDC 登录。", actorLabel)
 		default:
 			if reason != "" {
+				if en {
+					return fmt.Sprintf("%s login failed (%s).", actorLabel, reason)
+				}
 				return fmt.Sprintf("%s 登录失败（%s）。", actorLabel, reason)
+			}
+			if en {
+				return fmt.Sprintf("%s login failed.", actorLabel)
 			}
 			return fmt.Sprintf("%s 登录失败。", actorLabel)
 		}
@@ -290,6 +354,13 @@ func auditBuildSummary(
 		if u == "" && actorRef != nil {
 			u = actorRef.Username
 		}
+		if en {
+			roleEn := "user"
+			if metaString(meta, "role") == "admin" {
+				roleEn = "admin (first signup)"
+			}
+			return fmt.Sprintf("%s self-registered (username %s, role: %s).", actorLabel, u, roleEn)
+		}
 		return fmt.Sprintf("%s 完成自助注册（用户名 %s，角色：%s）。", actorLabel, u, roleZh)
 	case "auth.register_oidc":
 		roleZh := "普通用户"
@@ -297,9 +368,19 @@ func auditBuildSummary(
 			roleZh = "管理员（首个注册用户）"
 		}
 		u := metaString(meta, "username")
+		if en {
+			roleEn := "user"
+			if metaString(meta, "role") == "admin" {
+				roleEn = "admin (first signup)"
+			}
+			return fmt.Sprintf("%s registered via OIDC (username %s, role: %s).", actorLabel, u, roleEn)
+		}
 		return fmt.Sprintf("%s 通过 OIDC 完成注册（用户名 %s，角色：%s）。", actorLabel, u, roleZh)
 	case "auth.register_denied":
 		u := metaString(meta, "username")
+		if en {
+			return fmt.Sprintf("Registration denied (closed). Attempted username \"%s\".", u)
+		}
 		return fmt.Sprintf("注册被拒绝：公开注册已关闭，尝试用户名「%s」。", u)
 	}
 
@@ -307,11 +388,17 @@ func auditBuildSummary(
 	switch action {
 	case "admin.settings_update":
 		if m, ok := meta["registration_open"].(map[string]interface{}); ok {
-			from := metaBoolString(m, "from")
-			to := metaBoolString(m, "to")
+			from := metaBoolString(m, "from", locale)
+			to := metaBoolString(m, "to", locale)
 			if from != "" && to != "" {
+				if en {
+					return fmt.Sprintf("%s changed system setting \"public registration\" from %s to %s.", actorLabel, from, to)
+				}
 				return fmt.Sprintf("%s 修改系统设置：「公开注册」由 %s 调整为 %s。", actorLabel, from, to)
 			}
+		}
+		if en {
+			return fmt.Sprintf("%s updated system settings.", actorLabel)
 		}
 		return fmt.Sprintf("%s 修改了系统设置。", actorLabel)
 	case "admin.user_create":
@@ -322,8 +409,18 @@ func auditBuildSummary(
 		} else {
 			role = "普通用户"
 		}
+		if en {
+			roleEn := "user"
+			if metaString(meta, "role") == "admin" {
+				roleEn = "admin"
+			}
+			return fmt.Sprintf("%s created user \"%s\" (role: %s).", actorLabel, u, roleEn)
+		}
 		return fmt.Sprintf("%s 在后台创建新用户「%s」（角色：%s）。", actorLabel, u, role)
 	case "admin.user_reset_password":
+		if en {
+			return fmt.Sprintf("%s reset password for %s.", actorLabel, resourceLabel)
+		}
 		return fmt.Sprintf("%s 重置了 %s 的登录密码。", actorLabel, resourceLabel)
 	case "admin.user_status":
 		verb := "更新"
@@ -341,6 +438,17 @@ func auditBuildSummary(
 				verb = "禁用"
 			}
 		}
+		if en {
+			v := verb
+			if v == "启用" {
+				v = "enabled"
+			} else if v == "禁用" {
+				v = "disabled"
+			} else {
+				v = "updated"
+			}
+			return fmt.Sprintf("%s %s %s.", actorLabel, v, resourceLabel)
+		}
 		return fmt.Sprintf("%s %s了 %s。", actorLabel, verb, resourceLabel)
 	}
 
@@ -354,65 +462,113 @@ func auditBuildSummary(
 		} else {
 			lt = "个人账本"
 		}
+		if en {
+			ltEn := "personal ledger"
+			if metaString(meta, "type") == "family" {
+				ltEn = "family ledger"
+			}
+			return fmt.Sprintf("%s created %s \"%s\".", actorLabel, ltEn, n)
+		}
 		return fmt.Sprintf("%s 新建%s「%s」。", actorLabel, lt, n)
 	case "ledger.update":
 		from := metaString(meta, "from")
 		to := metaString(meta, "to")
+		if en {
+			return fmt.Sprintf("%s renamed %s from \"%s\" to \"%s\".", actorLabel, resourceLabel, from, to)
+		}
 		return fmt.Sprintf("%s 将 %s 名称由「%s」改为「%s」。", actorLabel, resourceLabel, from, to)
 	case "ledger.invite_created":
+		if en {
+			return fmt.Sprintf("%s created a member invite for %s (24h).", actorLabel, resourceLabel)
+		}
 		return fmt.Sprintf("%s 为 %s 生成成员邀请（24 小时内有效）。", actorLabel, resourceLabel)
 	case "ledger.join":
+		if en {
+			return fmt.Sprintf("%s joined %s with an invite code.", actorLabel, resourceLabel)
+		}
 		return fmt.Sprintf("%s 使用邀请码加入了 %s。", actorLabel, resourceLabel)
 	case "ledger.member_removed":
 		rid := metaString(meta, "removed_user_id")
 		target := "某成员"
 		if id, err := uuid.Parse(rid); err == nil {
 			if u, ok := users[id]; ok {
-				target = fmt.Sprintf("成员「%s」", auditUserDisplayName(u))
+				if en {
+					target = fmt.Sprintf("member \"%s\"", auditUserDisplayName(u))
+				} else {
+					target = fmt.Sprintf("成员「%s」", auditUserDisplayName(u))
+				}
 			} else {
-				target = fmt.Sprintf("成员（%s）", id.String()[:8])
+				if en {
+					target = fmt.Sprintf("member (%s)", id.String()[:8])
+				} else {
+					target = fmt.Sprintf("成员（%s）", id.String()[:8])
+				}
 			}
+		}
+		if en {
+			return fmt.Sprintf("%s removed %s from %s.", actorLabel, target, resourceLabel)
 		}
 		return fmt.Sprintf("%s 将 %s 从 %s 中移除。", actorLabel, target, resourceLabel)
 	case "ledger.family_link_create":
 		if row.ResourceID == nil {
+			if en {
+				return fmt.Sprintf("%s linked a personal ledger to a family ledger.", actorLabel)
+			}
 			return fmt.Sprintf("%s 关联了个人子账本到家庭账本。", actorLabel)
 		}
 		famID, err1 := uuid.Parse(*row.ResourceID)
 		plStr := metaString(meta, "personal_ledger_id")
 		pid, err2 := uuid.Parse(plStr)
 		if err1 != nil || err2 != nil {
+			if en {
+				return fmt.Sprintf("%s linked personal ledger to family ledger.", actorLabel)
+			}
 			return fmt.Sprintf("%s 关联个人子账本到家庭账本。", actorLabel)
 		}
-		sub := auditLedgerTitle(ledgers, pid)
-		fam := auditLedgerTitle(ledgers, famID)
+		sub := auditLedgerTitle(ledgers, pid, locale)
+		fam := auditLedgerTitle(ledgers, famID, locale)
+		if en {
+			return fmt.Sprintf("%s linked %s to %s (family totals merge).", actorLabel, sub, fam)
+		}
 		return fmt.Sprintf("%s 将 %s 关联到 %s（家庭流水将合并统计）。", actorLabel, sub, fam)
 	case "ledger.family_link_delete":
 		if row.ResourceID == nil {
+			if en {
+				return fmt.Sprintf("%s unlinked personal ledger from family ledger.", actorLabel)
+			}
 			return fmt.Sprintf("%s 解除了个人子账本与家庭账本的关联。", actorLabel)
 		}
 		famID, err1 := uuid.Parse(*row.ResourceID)
 		plStr := metaString(meta, "personal_ledger_id")
 		pid, err2 := uuid.Parse(plStr)
 		if err1 != nil || err2 != nil {
+			if en {
+				return fmt.Sprintf("%s unlinked personal ledger from family ledger.", actorLabel)
+			}
 			return fmt.Sprintf("%s 解除了个人子账本与家庭账本的关联。", actorLabel)
 		}
-		sub := auditLedgerTitle(ledgers, pid)
-		fam := auditLedgerTitle(ledgers, famID)
+		sub := auditLedgerTitle(ledgers, pid, locale)
+		fam := auditLedgerTitle(ledgers, famID, locale)
+		if en {
+			return fmt.Sprintf("%s unlinked %s from %s.", actorLabel, sub, fam)
+		}
 		return fmt.Sprintf("%s 解除了 %s 与 %s 的关联。", actorLabel, sub, fam)
 	}
 
+	if en {
+		return fmt.Sprintf("%s performed \"%s\" on %s.", actorLabel, action, resourceLabel)
+	}
 	return fmt.Sprintf("%s 执行操作「%s」，对象：%s。", actorLabel, action, resourceLabel)
 }
 
-// FormatAuditLogItems enriches raw audit rows with Chinese labels and a one-line summary.
-func FormatAuditLogItems(rows []models.AuditLog) []gin.H {
+// FormatAuditLogItems enriches raw audit rows with localized labels and a one-line summary.
+func FormatAuditLogItems(rows []models.AuditLog, locale string) []gin.H {
 	userIDs, ledgerIDs := auditCollectUserAndLedgerIDs(rows)
 	users := auditLoadUserMap(userIDs)
 	ledgers := auditLoadLedgerMap(ledgerIDs)
 	out := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, auditFormatLogItem(row, users, ledgers))
+		out = append(out, auditFormatLogItem(row, users, ledgers, locale))
 	}
 	return out
 }

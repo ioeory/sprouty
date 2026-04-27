@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { PieChart as PieIcon } from 'lucide-react';
 import { EmptyState } from './ui';
@@ -18,12 +19,18 @@ interface Props {
 
 export default function SpendingChart({
   data,
-  totalLabel = '本月总支出',
-  emptyTitle = '本月还没有支出',
-  emptyDescription = '记录第一笔开销，这里会展示分类占比',
+  totalLabel,
+  emptyTitle,
+  emptyDescription,
 }: Props) {
+  const { t } = useTranslation('dashboard');
+  const resolvedTotal = totalLabel ?? t('spendChartTotal');
+  const resolvedEmptyTitle = emptyTitle ?? t('spendChartEmptyTitle');
+  const resolvedEmptyDesc = emptyDescription ?? t('spendChartEmptyDesc');
   if (!data || data.length === 0) {
-    return <EmptyState icon={<PieIcon size={18} />} title={emptyTitle} description={emptyDescription} />;
+    return (
+      <EmptyState icon={<PieIcon size={18} />} title={resolvedEmptyTitle} description={resolvedEmptyDesc} />
+    );
   }
 
   const total = data.reduce((s, d) => s + d.value, 0);
@@ -69,7 +76,7 @@ export default function SpendingChart({
           </PieChart>
         </ResponsiveContainer>
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <p className="text-[10px] uppercase tracking-widest text-[var(--color-text-subtle)]">{totalLabel}</p>
+          <p className="text-[10px] uppercase tracking-widest text-[var(--color-text-subtle)]">{resolvedTotal}</p>
           <p className="text-lg font-semibold font-tabular text-[var(--color-text)]">¥{total.toLocaleString()}</p>
         </div>
       </div>

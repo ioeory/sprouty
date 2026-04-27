@@ -126,7 +126,7 @@ func CreateLedger(c *gin.Context) {
 		lt = "personal"
 	}
 	if lt != "personal" && lt != "family" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "type must be personal or family"})
+		c.JSON(http.StatusBadRequest, ErrorJSON(c, "ledger.type_invalid"))
 		return
 	}
 
@@ -148,10 +148,10 @@ func CreateLedger(c *gin.Context) {
 		).Error; err != nil {
 			return err
 		}
-		initDefaultCategoriesForLedger(tx, ledger.ID)
+		initDefaultCategoriesForLedger(tx, ledger.ID, Locale(c))
 		return nil
 	}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create ledger: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, ErrorJSON(c, "ledger.create_failed"))
 		return
 	}
 

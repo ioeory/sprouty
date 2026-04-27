@@ -1,0 +1,9 @@
+{
+  "dashboard": "Dashboard",
+  "transactions": "Transactions",
+  "projects": "Projects",
+  "categories": "Categories",
+  "members": "Members",
+  "admin": "Admin",
+  "telegramBot": "Telegram Bot"
+}

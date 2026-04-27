@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { X, Plus, Loader2 } from 'lucide-react';
 import api from '../api/client';
 
@@ -18,6 +19,7 @@ interface Props {
 // which defers to the parent) because the Members page doesn't pre-fetch
 // keywords per-ledger. We refresh when `ledgerId` changes.
 export default function LedgerKeywordsEditor({ ledgerId, initial }: Props) {
+  const { t } = useTranslation('members');
   const [keywords, setKeywords] = useState<LedgerKeyword[]>(initial || []);
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(false);
@@ -44,7 +46,7 @@ export default function LedgerKeywordsEditor({ ledgerId, initial }: Props) {
     const value = draft.trim();
     if (!value) return;
     if (keywords.some((k) => k.keyword.toLowerCase() === value.toLowerCase())) {
-      setError('关键字已存在');
+      setError(t('ledgerKwDuplicate'));
       return;
     }
     setSaving(true);
@@ -57,9 +59,9 @@ export default function LedgerKeywordsEditor({ ledgerId, initial }: Props) {
       const serverMsg = err.response?.data?.error;
       const existing = err.response?.data?.existing_ledger;
       if (existing) {
-        setError(`该关键字已指向「${existing}」账本`);
+        setError(t('ledgerKwAssigned', { name: existing }));
       } else {
-        setError(serverMsg || '添加失败');
+        setError(serverMsg || t('ledgerKwAddFailed'));
       }
     } finally {
       setSaving(false);
@@ -71,7 +73,7 @@ export default function LedgerKeywordsEditor({ ledgerId, initial }: Props) {
       await api.delete(`/ledger-keywords/${id}`);
       setKeywords((prev) => prev.filter((k) => k.id !== id));
     } catch (err: any) {
-      setError(err.response?.data?.error || '删除失败');
+      setError(err.response?.data?.error || t('ledgerKwDeleteFailed'));
     }
   };
 
@@ -89,7 +91,7 @@ export default function LedgerKeywordsEditor({ ledgerId, initial }: Props) {
               type="button"
               onClick={() => removeKeyword(kw.id)}
               className="w-3.5 h-3.5 inline-flex items-center justify-center rounded-full text-[var(--color-text-subtle)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)]"
-              aria-label={`删除关键字 ${kw.keyword}`}
+              aria-label={t('ledgerKwDeleteAria', { keyword: kw.keyword })}
             >
               <X size={10} />
             </button>
@@ -108,7 +110,7 @@ export default function LedgerKeywordsEditor({ ledgerId, initial }: Props) {
                 addKeyword();
               }
             }}
-            placeholder="加关键字…"
+            placeholder={t('ledgerKwPlaceholder')}
             className="h-7 px-2 text-xs rounded-full border border-dashed border-[var(--color-border)] bg-transparent text-[var(--color-text)] placeholder:text-[var(--color-text-subtle)] focus:outline-none focus:border-[var(--color-brand)] w-28"
           />
           {draft && (
@@ -117,7 +119,7 @@ export default function LedgerKeywordsEditor({ ledgerId, initial }: Props) {
               disabled={saving}
               onClick={addKeyword}
               className="w-5 h-5 inline-flex items-center justify-center rounded-full bg-[var(--color-brand)] text-white hover:opacity-90 disabled:opacity-60"
-              aria-label="添加关键字"
+              aria-label={t('ledgerKwAddAria')}
             >
               {saving ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
             </button>
@@ -125,9 +127,7 @@ export default function LedgerKeywordsEditor({ ledgerId, initial }: Props) {
         </div>
       </div>
       {error && <p className="text-[11px] text-[var(--color-danger)]">{error}</p>}
-      <p className="text-[11px] text-[var(--color-text-subtle)] leading-relaxed">
-        在消息中写入任意一个关键字，即可把记账写入当前账本。关键字在你的所有账本之间唯一。
-      </p>
+      <p className="text-[11px] text-[var(--color-text-subtle)] leading-relaxed">{t('ledgerKwHelp')}</p>
     </div>
   );
 }

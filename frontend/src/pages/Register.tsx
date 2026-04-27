@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate, Link } from 'react-router-dom';
 import { Lock, User, Mail, ArrowRight, UserCircle, Sprout } from 'lucide-react';
 import api from '../api/client';
 import { Button, Input } from '../components/ui';
 
 export default function Register() {
+  const { t } = useTranslation(['auth', 'common']);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [nickname, setNickname] = useState('');
@@ -39,7 +41,7 @@ export default function Register() {
       await api.post('/auth/register', { username, password, nickname, email });
       navigate('/login');
     } catch (err: any) {
-      setError(err.response?.data?.error || '注册失败，请重试');
+      setError(err.response?.data?.error || t('auth:registerFailed'));
     } finally {
       setLoading(false);
     }
@@ -52,18 +54,20 @@ export default function Register() {
           <div className="w-9 h-9 rounded-[var(--radius-md)] bg-[var(--color-brand)] text-white flex items-center justify-center">
             <Sprout size={18} />
           </div>
-          <span className="font-semibold text-[var(--color-text)]">Sprouty</span>
+          <span className="font-semibold text-[var(--color-text)]">{t('common:appName')}</span>
         </div>
 
         <div className="space-y-6 relative z-10">
           <h1 className="text-3xl font-bold text-[var(--color-text)] leading-tight">
-            三分钟建好账本，<br />从今天开始记账
+            {t('auth:registerHeroLine1')}
+            <br />
+            {t('auth:registerHeroLine2')}
           </h1>
           <p className="text-sm text-[var(--color-text-muted)] max-w-sm leading-relaxed">
-            注册即自动创建"我的账本"，并预置餐饮、交通、购物等常用分类，无需额外配置。
+            {t('auth:registerHeroSubtitle')}
           </p>
           <ul className="space-y-2 text-sm text-[var(--color-text-muted)]">
-            {['即时预算追踪', '家庭成员共享账本', '通过 Telegram 一句话记账'].map((item) => (
+            {[t('auth:registerBullet1'), t('auth:registerBullet2'), t('auth:registerBullet3')].map((item) => (
               <li key={item} className="flex items-center gap-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-brand)]" />
                 {item}
@@ -73,7 +77,7 @@ export default function Register() {
         </div>
 
         <p className="text-xs text-[var(--color-text-subtle)] relative z-10">
-          © {new Date().getFullYear()} Sprouty · 自托管
+          {t('auth:registerFooter', { year: new Date().getFullYear() })}
         </p>
 
         <div className="absolute -bottom-24 -left-16 w-80 h-80 rounded-full bg-[var(--color-brand)]/8 blur-3xl" />
@@ -85,12 +89,12 @@ export default function Register() {
             <div className="w-9 h-9 rounded-[var(--radius-md)] bg-[var(--color-brand)] text-white flex items-center justify-center">
               <Sprout size={18} />
             </div>
-            <span className="font-semibold text-[var(--color-text)]">Sprouty</span>
+            <span className="font-semibold text-[var(--color-text)]">{t('common:appName')}</span>
           </div>
 
           <div className="space-y-1.5">
-            <h2 className="text-2xl font-semibold text-[var(--color-text)]">创建账号</h2>
-            <p className="text-sm text-[var(--color-text-muted)]">开始使用 Sprouty 自托管记账</p>
+            <h2 className="text-2xl font-semibold text-[var(--color-text)]">{t('auth:createAccount')}</h2>
+            <p className="text-sm text-[var(--color-text-muted)]">{t('auth:registerSubtitle')}</p>
           </div>
 
           {error && (
@@ -101,9 +105,9 @@ export default function Register() {
 
           {registrationOpen === false && (
             <div className="p-4 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] text-sm text-[var(--color-text-muted)] space-y-3">
-              <p>当前未开放自助注册，请联系管理员。</p>
+              <p>{t('auth:registerClosedBox')}</p>
               <Link to="/login" className="text-[var(--color-brand)] font-medium hover:underline">
-                返回登录
+                {t('auth:backToLogin')}
               </Link>
             </div>
           )}
@@ -111,24 +115,24 @@ export default function Register() {
           {registrationOpen !== false && (
           <form onSubmit={handleRegister} className="space-y-3.5">
             <Input
-              label="昵称"
+              label={t('auth:nickname')}
               leftIcon={<UserCircle size={15} />}
               value={nickname}
               onChange={(e) => setNickname(e.target.value)}
-              placeholder="例如：我家账本"
+              placeholder={t('auth:nicknamePlaceholder')}
               required
             />
             <Input
-              label="用户名"
+              label={t('auth:username')}
               leftIcon={<User size={15} />}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="用于登录的唯一用户名"
+              placeholder={t('auth:usernameUniqueHint')}
               autoComplete="username"
               required
             />
             <Input
-              label="邮箱（可选）"
+              label={t('auth:emailOptional')}
               type="email"
               leftIcon={<Mail size={15} />}
               value={email}
@@ -137,26 +141,26 @@ export default function Register() {
               autoComplete="email"
             />
             <Input
-              label="密码"
+              label={t('auth:password')}
               type="password"
               leftIcon={<Lock size={15} />}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="至少 6 位"
+              placeholder={t('auth:passwordMin')}
               autoComplete="new-password"
               minLength={6}
               required
             />
             <Button type="submit" loading={loading} fullWidth rightIcon={<ArrowRight size={16} />} className="mt-2">
-              注册
+              {t('auth:register')}
             </Button>
           </form>
           )}
 
           <p className="text-center text-xs text-[var(--color-text-muted)]">
-            已有账号？{' '}
+            {t('auth:haveAccount')}{' '}
             <Link to="/login" className="text-[var(--color-brand)] hover:underline font-medium">
-              直接登录
+              {t('auth:loginDirect')}
             </Link>
           </p>
         </div>

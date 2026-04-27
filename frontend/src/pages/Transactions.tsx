@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Search,
   Filter,
@@ -58,17 +59,6 @@ function groupByDate(txs: Transaction[]): Array<[string, Transaction[]]> {
   return Array.from(map.entries()).sort((a, b) => (a[0] < b[0] ? 1 : -1));
 }
 
-function fmtDateHeader(key: string): string {
-  const [y, m, d] = key.split('-').map(Number);
-  const today = new Date();
-  const date = new Date(y, m - 1, d);
-  const diff = Math.floor((today.getTime() - date.getTime()) / 86400000);
-  if (diff === 0) return `今天 · ${m}月${d}日`;
-  if (diff === 1) return `昨天 · ${m}月${d}日`;
-  const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-  return `${m}月${d}日 · ${weekdays[date.getDay()]}`;
-}
-
 const PAGE_SIZE = 50;
 
 /** 当前用户作为成员可写操作的账本 ID（家庭合并视图下，他人子账流水不在此集合中） */
@@ -96,8 +86,23 @@ function mergeCategoriesById(lists: Category[][]): Category[] {
 }
 
 export default function Transactions() {
+  const { t } = useTranslation(['transactions', 'common']);
   const { currentLedger, ledgers } = useLayout();
   const mutableLedgerIds = useMutableLedgerIdSet(ledgers);
+
+  const fmtDateHeader = useCallback(
+    (key: string) => {
+      const [y, m, d] = key.split('-').map(Number);
+      const today = new Date();
+      const date = new Date(y, m - 1, d);
+      const diff = Math.floor((today.getTime() - date.getTime()) / 86400000);
+      if (diff === 0) return t('transactions:dateHeaderToday', { m, d });
+      if (diff === 1) return t('transactions:dateHeaderYesterday', { m, d });
+      const weekdays = t('transactions:weekdays', { returnObjects: true }) as string[];
+      return t('transactions:dateHeader', { m, d, weekday: weekdays[date.getDay()] });
+    },
+    [t],
+  );
   const [txs, setTxs] = useState<Transaction[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -125,8 +130,8 @@ export default function Transactions() {
   }, [categories]);
 
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 300);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(timer);
   }, [search]);
 
   const loadCategories = async () => {
@@ -221,7 +226,7 @@ export default function Transactions() {
   const confirmDelete = async () => {
     if (!deleting) return;
     if (!canMutateTransaction(deleting, currentLedger.id, mutableLedgerIds)) {
-      setTxFeedback('无法删除：该笔流水记在关联成员的子账上，您不是该子账成员。');
+      setTxFeedback(t('transactions:deleteForbiddenMerged'));
       setDeleting(null);
       return;
     }
@@ -234,7 +239,7 @@ export default function Transactions() {
     } catch (err: unknown) {
       console.error(err);
       const msg =
-        (err as { response?: { data?: { error?: string } } })?.response?.data?.error || '删除失败，请稍后重试';
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error || t('transactions:deleteFailed');
       setTxFeedback(msg);
     } finally {
       setConfirmLoading(false);
@@ -244,7 +249,7 @@ export default function Transactions() {
   if (!currentLedger) {
     return (
       <Card>
-        <EmptyState icon={<Receipt size={18} />} title="请先选择账本" />
+        <EmptyState icon={<Receipt size={18} />} title={t('transactions:selectLedgerFirst')} />
       </Card>
     );
   }
@@ -265,7 +270,7 @@ export default function Transactions() {
             type="button"
             onClick={() => setTxFeedback('')}
             className="shrink-0 text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
-            aria-label="关闭提示"
+            aria-label={t('transactions:closeHint')}
           >
             <X size={14} />
           </button>
@@ -276,13 +281,13 @@ export default function Transactions() {
           <p className="text-xs text-[var(--color-text-subtle)] uppercase tracking-widest">
             {currentLedger.name}
             {showMergedFamilyHint && (
-              <span className="normal-case text-[var(--color-text-muted)]"> · 含本家庭已关联子账流水</span>
+              <span className="normal-case text-[var(--color-text-muted)]">{t('transactions:mergedFlowHint')}</span>
             )}
           </p>
-          <h1 className="text-xl font-semibold text-[var(--color-text)] mt-1">流水记录</h1>
+          <h1 className="text-xl font-semibold text-[var(--color-text)] mt-1">{t('transactions:title')}</h1>
           {showMergedFamilyHint && (
             <p className="text-[11px] text-[var(--color-text-muted)] mt-1.5 max-w-xl leading-relaxed">
-              若某笔来自其他成员关联的个人子账，且您不是该子账成员，则仅可查看；编辑、删除按钮不可用。删除接口也会校验权限。
+              {t('transactions:mergedReadonlyHint')}
             </p>
           )}
         </div>
@@ -293,11 +298,12 @@ export default function Transactions() {
             leftIcon={<Filter size={14} />}
             onClick={() => setFilterOpen((v) => !v)}
           >
-            筛选 {activeFilterCount > 0 && <span className="ml-1 text-[var(--color-brand)]">·{activeFilterCount}</span>}
+            {t('transactions:filter')}{' '}
+            {activeFilterCount > 0 && <span className="ml-1 text-[var(--color-brand)]">·{activeFilterCount}</span>}
             {filterOpen ? <ChevronUp size={12} className="ml-1" /> : <ChevronDown size={12} className="ml-1" />}
           </Button>
           <Button size="sm" leftIcon={<Plus size={14} />} onClick={() => setAdding(true)}>
-            新增
+            {t('transactions:add')}
           </Button>
         </div>
       </div>
@@ -306,17 +312,21 @@ export default function Transactions() {
       <Card padding="sm">
         <div className="grid grid-cols-3 divide-x divide-[var(--color-border)]">
           <div className="pr-3">
-            <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider">共 {total} 条</p>
-            <p className="text-sm font-medium text-[var(--color-text)] mt-0.5">已加载 {txs.length}</p>
+            <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider">
+              {t('transactions:totalCount', { total })}
+            </p>
+            <p className="text-sm font-medium text-[var(--color-text)] mt-0.5">
+              {t('transactions:loadedCount', { count: txs.length })}
+            </p>
           </div>
           <div className="px-3">
-            <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider">本视图支出</p>
+            <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider">{t('transactions:viewExpense')}</p>
             <p className="text-sm font-semibold font-tabular text-[var(--color-text)] mt-0.5">
               ¥{monthTotal.expense.toLocaleString()}
             </p>
           </div>
           <div className="pl-3">
-            <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider">本视图收入</p>
+            <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider">{t('transactions:viewIncome')}</p>
             <p className="text-sm font-semibold font-tabular text-[var(--color-success)] mt-0.5">
               ¥{monthTotal.income.toLocaleString()}
             </p>
@@ -330,21 +340,21 @@ export default function Transactions() {
           <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
             <Input
               leftIcon={<Search size={14} />}
-              placeholder="搜索备注或标签"
+              placeholder={t('transactions:searchPlaceholder')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="md:col-span-2"
             />
             <Select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
-              <option value="">全部类型</option>
-              <option value="expense">仅支出</option>
-              <option value="income">仅收入</option>
+              <option value="">{t('transactions:typeAll')}</option>
+              <option value="expense">{t('transactions:typeExpense')}</option>
+              <option value="income">{t('transactions:typeIncome')}</option>
             </Select>
             <Select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
-              <option value="">全部分类</option>
+              <option value="">{t('transactions:categoryAll')}</option>
               {categories.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name}（{c.type === 'expense' ? '支' : '收'}）
+                  {c.name}（{c.type === 'expense' ? t('transactions:categoryTypeExpense') : t('transactions:categoryTypeIncome')}）
                 </option>
               ))}
             </Select>
@@ -366,7 +376,7 @@ export default function Transactions() {
           {activeFilterCount > 0 && (
             <div className="mt-3 flex justify-end">
               <Button variant="ghost" size="sm" leftIcon={<X size={12} />} onClick={clearFilters}>
-                清空筛选
+                {t('transactions:clearFilters')}
               </Button>
             </div>
           )}
@@ -382,16 +392,18 @@ export default function Transactions() {
         ) : groups.length === 0 ? (
           <EmptyState
             icon={<Receipt size={18} />}
-            title="没有符合条件的记录"
-            description={activeFilterCount > 0 ? '试试调整或清空筛选条件' : '从右上角「新增」开始记录第一笔'}
+            title={t('transactions:emptyTitle')}
+            description={
+              activeFilterCount > 0 ? t('transactions:emptyDescFiltered') : t('transactions:emptyDescDefault')
+            }
             action={
               activeFilterCount > 0 ? (
                 <Button size="sm" variant="outline" onClick={clearFilters}>
-                  清空筛选
+                  {t('transactions:clearFilters')}
                 </Button>
               ) : (
                 <Button size="sm" leftIcon={<Plus size={12} />} onClick={() => setAdding(true)}>
-                  记一笔
+                  {t('transactions:addFirst')}
                 </Button>
               )
             }
@@ -406,9 +418,15 @@ export default function Transactions() {
                   <div className="flex items-center justify-between px-5 py-2.5 bg-[var(--color-surface-muted)]/60 sticky top-14 z-10">
                     <span className="text-xs font-medium text-[var(--color-text-muted)]">{fmtDateHeader(dateKey)}</span>
                     <span className="text-[11px] text-[var(--color-text-subtle)] font-tabular">
-                      {dayExpense > 0 && <span>支 ¥{dayExpense.toLocaleString()}</span>}
+                      {dayExpense > 0 && (
+                        <span>{t('transactions:dayExpense', { amount: dayExpense.toLocaleString() })}</span>
+                      )}
                       {dayExpense > 0 && dayIncome > 0 && <span className="mx-1">·</span>}
-                      {dayIncome > 0 && <span className="text-[var(--color-success)]">收 ¥{dayIncome.toLocaleString()}</span>}
+                      {dayIncome > 0 && (
+                        <span className="text-[var(--color-success)]">
+                          {t('transactions:dayIncome', { amount: dayIncome.toLocaleString() })}
+                        </span>
+                      )}
                     </span>
                   </div>
                   <ul className="divide-y divide-[var(--color-border)]">
@@ -427,13 +445,13 @@ export default function Transactions() {
                           <CategoryIcon name={cat?.icon} color={cat?.color} size={36} />
                           <div className="flex-1 min-w-0">
                             <p className="text-sm text-[var(--color-text)] truncate flex items-center gap-1.5 flex-wrap">
-                              {cat?.name || '未分类'}
+                              {cat?.name || t('transactions:uncategorized')}
                               {subName && (
                                 <span className="text-[10px] text-[var(--color-brand)] shrink-0">· {subName}</span>
                               )}
                               {!canMutate && (
                                 <Badge tone="warning" className="!text-[10px] !py-0 !px-1.5 font-normal shrink-0">
-                                  无权限修改
+                                  {t('transactions:badgeReadonly')}
                                 </Badge>
                               )}
                               {tx.type === 'income' ? (
@@ -454,7 +472,7 @@ export default function Transactions() {
                                         ? 'bg-[var(--color-surface-muted)] text-[var(--color-text-subtle)] border border-dashed border-[var(--color-border)]'
                                         : 'bg-[var(--color-surface-muted)] text-[var(--color-text-muted)]')
                                     }
-                                    title={tg.exclude_from_stats ? '该标签默认从统计中排除' : ''}
+                                    title={tg.exclude_from_stats ? t('transactions:tagExcludeTitle') : ''}
                                   >
                                     <span
                                       className="w-1.5 h-1.5 rounded-full"
@@ -486,18 +504,14 @@ export default function Transactions() {
                               disabled={!canMutate}
                               onClick={() => {
                                 if (!canMutate) {
-                                  setTxFeedback(
-                                    '无权限修改：该笔流水记在关联成员的子账上，您不是该子账成员，无法在合并视图中编辑。',
-                                  );
+                                  setTxFeedback(t('transactions:editForbidden'));
                                   return;
                                 }
                                 setTxFeedback('');
                                 setEditing(tx);
                               }}
                               title={
-                                canMutate
-                                  ? '编辑'
-                                  : '无权限修改：该笔流水属于其他成员关联的子账，您仅可在此查看'
+                                canMutate ? t('transactions:edit') : t('transactions:editForbiddenTitle')
                               }
                               className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-subtle)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[var(--color-text-subtle)]"
                             >
@@ -508,19 +522,13 @@ export default function Transactions() {
                               disabled={!canMutate}
                               onClick={() => {
                                 if (!canMutate) {
-                                  setTxFeedback(
-                                    '无法删除：该笔流水记在关联成员的子账上，您不是该子账成员，无权删除。',
-                                  );
+                                  setTxFeedback(t('transactions:deleteForbiddenMerged'));
                                   return;
                                 }
                                 setTxFeedback('');
                                 setDeleting(tx);
                               }}
-                              title={
-                                canMutate
-                                  ? '删除'
-                                  : '无法删除：该笔流水属于其他成员关联的子账，仅该子账成员可删除'
-                              }
+                              title={canMutate ? t('common:delete') : t('transactions:deleteForbiddenTitle')}
                               className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-subtle)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[var(--color-text-subtle)]"
                             >
                               <Trash2 size={13} />
@@ -536,7 +544,7 @@ export default function Transactions() {
             {hasMore && (
               <div className="p-4 border-t border-[var(--color-border)] text-center">
                 <Button variant="ghost" size="sm" loading={loading} onClick={() => load(false)}>
-                  加载更多 ({total - txs.length} 条剩余)
+                  {t('transactions:loadMore', { remaining: total - txs.length })}
                 </Button>
               </div>
             )}
@@ -576,15 +584,15 @@ export default function Transactions() {
         open={!!deleting}
         onClose={() => setDeleting(null)}
         size="sm"
-        title="确认删除？"
-        description="删除后无法恢复"
+        title={t('transactions:confirmDeleteTitle')}
+        description={t('transactions:confirmDeleteDesc')}
         footer={
           <>
             <Button variant="outline" onClick={() => setDeleting(null)}>
-              取消
+              {t('common:cancel')}
             </Button>
             <Button variant="danger" loading={confirmLoading} onClick={confirmDelete}>
-              删除
+              {t('common:delete')}
             </Button>
           </>
         }
@@ -597,8 +605,12 @@ export default function Transactions() {
               size={36}
             />
             <div className="flex-1 min-w-0">
-              <p className="text-sm text-[var(--color-text)]">{categoryMap[deleting.category_id]?.name || '未分类'}</p>
-              <p className="text-xs text-[var(--color-text-subtle)] truncate">{deleting.note || '无备注'}</p>
+              <p className="text-sm text-[var(--color-text)]">
+                {categoryMap[deleting.category_id]?.name || t('transactions:uncategorized')}
+              </p>
+              <p className="text-xs text-[var(--color-text-subtle)] truncate">
+                {deleting.note || t('transactions:noNote')}
+              </p>
             </div>
             <span
               className={`text-sm font-semibold font-tabular ${

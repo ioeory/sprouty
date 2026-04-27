@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Wallet, Trash2 } from 'lucide-react';
 import api from '../api/client';
 import { Modal, Button, Select, cn } from './ui';
@@ -22,13 +23,18 @@ interface Props {
   onSuccess: () => void;
 }
 
-const MODE_OPTIONS: Array<{ value: 'none' | 'total' | 'monthly'; label: string; hint: string }> = [
-  { value: 'none', label: '不设预算', hint: '只跟踪支出，不比较上限' },
-  { value: 'total', label: '一次性总预算', hint: '适合有始有终的项目，如旅行、装修' },
-  { value: 'monthly', label: '每月预算', hint: '按月重置，适合长期订阅类项目' },
-];
-
 export default function ProjectBudgetModal({ open, project, onClose, onSuccess }: Props) {
+  const { t } = useTranslation('modals');
+  const { t: tc } = useTranslation('common');
+  const modeOptions = useMemo(
+    () =>
+      [
+        { value: 'none' as const, label: t('budgetModeNone'), hint: t('budgetModeNoneHint') },
+        { value: 'total' as const, label: t('budgetModeTotal'), hint: t('budgetModeTotalHint') },
+        { value: 'monthly' as const, label: t('budgetModeMonthly'), hint: t('budgetModeMonthlyHint') },
+      ] as const,
+    [t],
+  );
   const initMode = project.budget?.mode ?? 'none';
   const [mode, setMode] = useState<'none' | 'total' | 'monthly'>(initMode);
   const [amount, setAmount] = useState(
@@ -83,7 +89,7 @@ export default function ProjectBudgetModal({ open, project, onClose, onSuccess }
       onSuccess();
       onClose();
     } catch (err: any) {
-      setError(err.response?.data?.error || '保存失败');
+      setError(err.response?.data?.error || t('projectSaveFailed'));
     } finally {
       setLoading(false);
     }
@@ -93,15 +99,15 @@ export default function ProjectBudgetModal({ open, project, onClose, onSuccess }
     <Modal
       open={open}
       onClose={onClose}
-      title="项目预算"
+      title={t('projectBudgetTitle')}
       description={project.name}
       size="md"
     >
       <div className="space-y-5">
         <div>
-          <p className="text-xs font-medium text-[var(--color-text-muted)] mb-2">预算模式</p>
+          <p className="text-xs font-medium text-[var(--color-text-muted)] mb-2">{t('budgetModeLabel')}</p>
           <div className="space-y-2">
-            {MODE_OPTIONS.map((opt) => {
+            {modeOptions.map((opt) => {
               const active = mode === opt.value;
               return (
                 <button
@@ -128,8 +134,8 @@ export default function ProjectBudgetModal({ open, project, onClose, onSuccess }
         {mode !== 'none' && (
           <div className="space-y-3">
             <Select
-              label="预算统计账本"
-              hint="仅统计该账本下、关联本项目的支出，用于对比预算上限"
+              label={t('budgetLedgerLabel')}
+              hint={t('budgetLedgerHint')}
               value={budgetLedgerId}
               onChange={(e) => setBudgetLedgerId(e.target.value)}
             >
@@ -142,7 +148,7 @@ export default function ProjectBudgetModal({ open, project, onClose, onSuccess }
 
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-[var(--color-text-muted)] flex items-center gap-1.5">
-                <Wallet size={12} /> 金额
+                <Wallet size={12} /> {t('amountLabel')}
               </label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-subtle)] text-sm">¥</span>
@@ -160,14 +166,14 @@ export default function ProjectBudgetModal({ open, project, onClose, onSuccess }
 
             {mode === 'monthly' && (
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-[var(--color-text-muted)]">适用月份</label>
+                <label className="text-xs font-medium text-[var(--color-text-muted)]">{t('monthApplyLabel')}</label>
                 <input
                   type="month"
                   value={yearMonth}
                   onChange={(e) => setYearMonth(e.target.value)}
                   className="w-full h-10 px-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] text-sm outline-none focus:border-[var(--color-brand)] focus:ring-2 focus:ring-[var(--color-brand)]/20"
                 />
-                <p className="text-[11px] text-[var(--color-text-subtle)]">切换到其它月份时再打开本弹窗单独设置</p>
+                <p className="text-[11px] text-[var(--color-text-subtle)]">{t('monthApplyHint')}</p>
               </div>
             )}
           </div>
@@ -181,7 +187,7 @@ export default function ProjectBudgetModal({ open, project, onClose, onSuccess }
 
         <div className="flex gap-2 pt-1">
           <Button type="button" variant="outline" fullWidth onClick={onClose}>
-            取消
+            {tc('cancel')}
           </Button>
           <Button
             type="button"
@@ -191,7 +197,7 @@ export default function ProjectBudgetModal({ open, project, onClose, onSuccess }
             variant={mode === 'none' ? 'danger' : 'primary'}
             onClick={handleSave}
           >
-            {mode === 'none' ? '清除预算' : '保存预算'}
+            {mode === 'none' ? t('clearBudget') : t('saveProjectBudget')}
           </Button>
         </div>
       </div>

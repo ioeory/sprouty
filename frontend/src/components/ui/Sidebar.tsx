@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { NavLink } from 'react-router-dom';
 import { cn } from './cn';
 
@@ -34,6 +35,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onClose,
   collapsed,
 }) => {
+  const { t } = useTranslation('common');
   // Close the mobile drawer on Escape
   useEffect(() => {
     if (!open) return;
@@ -67,7 +69,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           'bg-[var(--color-surface)] border-r border-[var(--color-border)]',
           className,
         )}
-        aria-label="主导航"
+        aria-label={t('mainNav')}
       >
         <div
           className={cn(

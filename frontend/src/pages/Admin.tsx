@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import api from '../api/client';
 import { Card, CardHeader, Button, Input } from '../components/ui';
 import { Shield, ScrollText, Loader2, UserPlus, Users, KeyRound } from 'lucide-react';
@@ -31,6 +32,7 @@ interface ManagedUser {
 }
 
 export default function Admin() {
+  const { t } = useTranslation('admin');
   const [regOpen, setRegOpen] = useState(true);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -81,7 +83,7 @@ export default function Admin() {
         await loadUsers();
         await loadLogs(1);
       } catch (e: any) {
-        if (ok) setErr(e.response?.data?.error || '加载失败');
+        if (ok) setErr(e.response?.data?.error || t('loadFailed'));
       } finally {
         if (ok) setLoading(false);
       }
@@ -98,7 +100,7 @@ export default function Admin() {
       await api.put('/admin/settings', { registration_open: regOpen });
       await loadSettings();
     } catch (e: any) {
-      setErr(e.response?.data?.error || '保存失败');
+      setErr(e.response?.data?.error || t('saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -106,11 +108,11 @@ export default function Admin() {
 
   const createUser = async () => {
     if (!newUser.username.trim()) {
-      setErr('用户名不能为空');
+      setErr(t('usernameRequired'));
       return;
     }
     if (newUser.password.length < 6) {
-      setErr('密码至少 6 位');
+      setErr(t('passwordMin'));
       return;
     }
     setCreatingUser(true);
@@ -128,17 +130,17 @@ export default function Admin() {
       await loadLogs(1);
       setPage(1);
     } catch (e: any) {
-      setErr(e.response?.data?.error || '创建用户失败');
+      setErr(e.response?.data?.error || t('createUserFailed'));
     } finally {
       setCreatingUser(false);
     }
   };
 
   const resetPassword = async (u: ManagedUser) => {
-    const pwd = window.prompt(`为用户 ${u.username} 设置新密码（至少 6 位）`);
+    const pwd = window.prompt(t('pwdResetPrompt', { username: u.username }));
     if (!pwd) return;
     if (pwd.length < 6) {
-      setErr('新密码至少 6 位');
+      setErr(t('newPasswordMin'));
       return;
     }
     setErr('');
@@ -147,7 +149,7 @@ export default function Admin() {
       await loadLogs(1);
       setPage(1);
     } catch (e: any) {
-      setErr(e.response?.data?.error || '重置密码失败');
+      setErr(e.response?.data?.error || t('resetPwdFailed'));
     }
   };
 
@@ -159,7 +161,7 @@ export default function Admin() {
       await loadLogs(1);
       setPage(1);
     } catch (e: any) {
-      setErr(e.response?.data?.error || '更新用户状态失败');
+      setErr(e.response?.data?.error || t('statusUpdateFailed'));
     }
   };
 
@@ -176,9 +178,9 @@ export default function Admin() {
       <div>
         <h1 className="text-xl font-semibold text-[var(--color-text)] flex items-center gap-2">
           <Shield size={22} className="text-[var(--color-brand)]" />
-          系统管理
+          {t('title')}
         </h1>
-        <p className="text-sm text-[var(--color-text-muted)] mt-1">仅管理员可见：注册开关与审计日志</p>
+        <p className="text-sm text-[var(--color-text-muted)] mt-1">{t('subtitle')}</p>
       </div>
 
       {err && (
@@ -188,10 +190,7 @@ export default function Admin() {
       )}
 
       <Card padding="md">
-        <CardHeader
-          title="公开注册"
-          description="关闭后新用户无法自助注册（OIDC 新用户同样受限于「开放注册」策略）"
-        />
+        <CardHeader title={t('regTitle')} description={t('regDesc')} />
         <div className="mt-4 flex flex-wrap items-center gap-4">
           <label className="flex items-center gap-2 text-sm text-[var(--color-text)] cursor-pointer">
             <input
@@ -200,10 +199,10 @@ export default function Admin() {
               onChange={(e) => setRegOpen(e.target.checked)}
               className="rounded border-[var(--color-border)]"
             />
-            允许公开注册
+            {t('allowReg')}
           </label>
           <Button size="sm" loading={saving} onClick={save}>
-            保存
+            {t('save')}
           </Button>
         </div>
       </Card>
@@ -212,22 +211,22 @@ export default function Admin() {
         <CardHeader
           title={
             <span className="flex items-center gap-2">
-              <Users size={16} /> 用户管理
+              <Users size={16} /> {t('usersTitle')}
             </span>
           }
-          description="可重置密码、启用/禁用账号"
+          description={t('usersDesc')}
         />
         <div className="mt-4 flex flex-wrap items-end gap-2">
           <div className="w-full md:w-64">
             <Input
-              label="搜索用户"
+              label={t('searchLabel')}
               value={userKeyword}
               onChange={(e) => setUserKeyword(e.target.value)}
-              placeholder="用户名/昵称/邮箱"
+              placeholder={t('searchPh')}
             />
           </div>
           <Button size="sm" variant="secondary" onClick={() => loadUsers(userKeyword.trim())} loading={loadingUsers}>
-            查询
+            {t('query')}
           </Button>
         </div>
 
@@ -235,11 +234,11 @@ export default function Admin() {
           <table className="w-full text-xs text-left border-collapse">
             <thead>
               <tr className="border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
-                <th className="py-2 pr-2 font-medium">用户</th>
-                <th className="py-2 pr-2 font-medium">角色</th>
-                <th className="py-2 pr-2 font-medium">状态</th>
-                <th className="py-2 pr-2 font-medium">创建时间</th>
-                <th className="py-2 pr-2 font-medium">操作</th>
+                <th className="py-2 pr-2 font-medium">{t('colUser')}</th>
+                <th className="py-2 pr-2 font-medium">{t('colRole')}</th>
+                <th className="py-2 pr-2 font-medium">{t('colStatus')}</th>
+                <th className="py-2 pr-2 font-medium">{t('colCreated')}</th>
+                <th className="py-2 pr-2 font-medium">{t('colActions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -248,10 +247,13 @@ export default function Admin() {
                   <td className="py-2 pr-2">
                     <div className="text-[var(--color-text)] font-medium">{u.username}</div>
                     <div className="text-[10px] text-[var(--color-text-subtle)]">
-                      {u.nickname || '—'}{u.email ? ` · ${u.email}` : ''}
+                      {u.nickname || t('dash')}
+                      {u.email ? ` · ${u.email}` : ''}
                     </div>
                   </td>
-                  <td className="py-2 pr-2 text-[var(--color-text-muted)]">{u.role === 'admin' ? '管理员' : '普通用户'}</td>
+                  <td className="py-2 pr-2 text-[var(--color-text-muted)]">
+                    {u.role === 'admin' ? t('roleAdmin') : t('roleUser')}
+                  </td>
                   <td className="py-2 pr-2">
                     <span
                       className={`inline-flex px-2 py-0.5 rounded text-[10px] font-medium ${
@@ -260,7 +262,7 @@ export default function Admin() {
                           : 'bg-rose-500/15 text-rose-500'
                       }`}
                     >
-                      {u.is_active ? '启用中' : '已禁用'}
+                      {u.is_active ? t('statusActive') : t('statusDisabled')}
                     </span>
                   </td>
                   <td className="py-2 pr-2 text-[var(--color-text-subtle)] whitespace-nowrap">
@@ -274,14 +276,14 @@ export default function Admin() {
                         leftIcon={<KeyRound size={12} />}
                         onClick={() => resetPassword(u)}
                       >
-                        重置密码
+                        {t('resetPwd')}
                       </Button>
                       <Button
                         size="sm"
                         variant={u.is_active ? 'danger' : 'secondary'}
                         onClick={() => toggleUserStatus(u)}
                       >
-                        {u.is_active ? '禁用' : '启用'}
+                        {u.is_active ? t('disable') : t('enable')}
                       </Button>
                     </div>
                   </td>
@@ -290,7 +292,7 @@ export default function Admin() {
             </tbody>
           </table>
           {users.length === 0 && (
-            <p className="text-xs text-[var(--color-text-subtle)] py-6 text-center">暂无用户</p>
+            <p className="text-xs text-[var(--color-text-subtle)] py-6 text-center">{t('noUsers')}</p>
           )}
         </div>
       </Card>
@@ -299,40 +301,40 @@ export default function Admin() {
         <CardHeader
           title={
             <span className="flex items-center gap-2">
-              <UserPlus size={16} /> 新增用户
+              <UserPlus size={16} /> {t('addUserTitle')}
             </span>
           }
-          description="管理员可直接创建本地账号（自动创建其个人账本）"
+          description={t('addUserDesc')}
         />
         <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
           <Input
-            label="用户名"
+            label={t('username')}
             value={newUser.username}
             onChange={(e) => setNewUser((v) => ({ ...v, username: e.target.value }))}
-            placeholder="例如：alice"
+            placeholder={t('phUsername')}
           />
           <Input
-            label="密码"
+            label={t('password')}
             type="password"
             value={newUser.password}
             onChange={(e) => setNewUser((v) => ({ ...v, password: e.target.value }))}
-            placeholder="至少 6 位"
+            placeholder={t('phPassword')}
           />
           <Input
-            label="昵称（可选）"
+            label={t('nicknameOpt')}
             value={newUser.nickname}
             onChange={(e) => setNewUser((v) => ({ ...v, nickname: e.target.value }))}
-            placeholder="显示名"
+            placeholder={t('phNickname')}
           />
           <Input
-            label="邮箱（可选）"
+            label={t('emailOpt')}
             type="email"
             value={newUser.email}
             onChange={(e) => setNewUser((v) => ({ ...v, email: e.target.value }))}
-            placeholder="name@example.com"
+            placeholder={t('phEmail')}
           />
           <div className="md:col-span-2">
-            <p className="text-xs font-medium text-[var(--color-text-muted)] mb-1.5">角色</p>
+            <p className="text-xs font-medium text-[var(--color-text-muted)] mb-1.5">{t('roleLabel')}</p>
             <div className="inline-flex rounded-[var(--radius-md)] border border-[var(--color-border)] overflow-hidden">
               {(['user', 'admin'] as const).map((r) => (
                 <button
@@ -345,14 +347,14 @@ export default function Admin() {
                       : 'text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]'
                   }`}
                 >
-                  {r === 'admin' ? '管理员' : '普通用户'}
+                  {r === 'admin' ? t('roleAdmin') : t('roleUser')}
                 </button>
               ))}
             </div>
           </div>
           <div className="md:col-span-2">
             <Button size="sm" loading={creatingUser} onClick={createUser}>
-              创建用户
+              {t('createUser')}
             </Button>
           </div>
         </div>
@@ -362,21 +364,21 @@ export default function Admin() {
         <CardHeader
           title={
             <span className="flex items-center gap-2">
-              <ScrollText size={16} /> 审计日志
+              <ScrollText size={16} /> {t('logsTitle')}
             </span>
           }
-          description={`共 ${total} 条`}
+          description={t('logsTotal', { total })}
         />
         <div className="mt-4 overflow-x-auto">
           <table className="w-full text-xs text-left border-collapse">
             <thead>
               <tr className="border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
-                <th className="py-2 pr-2 font-medium w-[11rem]">时间</th>
-                <th className="py-2 pr-2 font-medium min-w-[14rem]">说明</th>
-                <th className="py-2 pr-2 font-medium">操作者</th>
-                <th className="py-2 pr-2 font-medium">对象</th>
-                <th className="py-2 pr-2 font-medium">技术标识</th>
-                <th className="py-2 pr-2 font-medium">IP</th>
+                <th className="py-2 pr-2 font-medium w-[11rem]">{t('colTime')}</th>
+                <th className="py-2 pr-2 font-medium min-w-[14rem]">{t('colSummary')}</th>
+                <th className="py-2 pr-2 font-medium">{t('colActor')}</th>
+                <th className="py-2 pr-2 font-medium">{t('colResource')}</th>
+                <th className="py-2 pr-2 font-medium">{t('colTech')}</th>
+                <th className="py-2 pr-2 font-medium">{t('colIp')}</th>
               </tr>
             </thead>
             <tbody>
@@ -389,19 +391,24 @@ export default function Admin() {
                     {row.summary || row.action}
                   </td>
                   <td className="py-2 pr-2 text-[var(--color-text-muted)] text-[12px]">
-                    {row.actor_label || (row.actor_user_id ? `用户（${row.actor_user_id.slice(0, 8)}…）` : '系统')}
+                    {row.actor_label ||
+                      (row.actor_user_id
+                        ? t('actorUser', { id: row.actor_user_id.slice(0, 8) })
+                        : t('actorSystem'))}
                   </td>
-                  <td className="py-2 pr-2 text-[var(--color-text-muted)] text-[12px]">{row.resource_label || '—'}</td>
+                  <td className="py-2 pr-2 text-[var(--color-text-muted)] text-[12px]">
+                    {row.resource_label || t('dash')}
+                  </td>
                   <td className="py-2 pr-2 font-mono text-[10px] text-[var(--color-text-subtle)] break-all max-w-[10rem]">
                     {row.action}
                     {row.resource_id ? ` · ${row.resource_id.slice(0, 8)}…` : ''}
                   </td>
-                  <td className="py-2 pr-2 text-[var(--color-text-subtle)] whitespace-nowrap">{row.ip || '—'}</td>
+                  <td className="py-2 pr-2 text-[var(--color-text-subtle)] whitespace-nowrap">{row.ip || t('dash')}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {logs.length === 0 && <p className="text-xs text-[var(--color-text-subtle)] py-6 text-center">暂无记录</p>}
+          {logs.length === 0 && <p className="text-xs text-[var(--color-text-subtle)] py-6 text-center">{t('noLogs')}</p>}
         </div>
         {total > 30 && (
           <div className="mt-4 flex items-center gap-2">
@@ -415,7 +422,7 @@ export default function Admin() {
                 loadLogs(p);
               }}
             >
-              上一页
+              {t('prevPage')}
             </Button>
             <Button
               size="sm"
@@ -427,7 +434,7 @@ export default function Admin() {
                 loadLogs(p);
               }}
             >
-              下一页
+              {t('nextPage')}
             </Button>
           </div>
         )}

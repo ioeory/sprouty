@@ -1,0 +1,6 @@
+{
+  "familyBadge": "Family · {{count}}",
+  "personalBadge": "Personal · {{count}}",
+  "subLedger": "Sub · {{name}}",
+  "noLedgers": "No ledgers"
+}

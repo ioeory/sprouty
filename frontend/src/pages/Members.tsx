@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Users,
   Crown,
@@ -55,6 +56,7 @@ interface FamilyLinksState {
 }
 
 export default function Members() {
+  const { t } = useTranslation(['members', 'common']);
   const { currentLedger, refreshLedgers } = useLayout();
   const [data, setData] = useState<MembersResp | null>(null);
   const [loading, setLoading] = useState(true);
@@ -122,7 +124,7 @@ export default function Members() {
       await loadFamilyLinks(currentLedger.id);
       await refreshLedgers();
     } catch (err: any) {
-      setError(err.response?.data?.error || '关联失败');
+      setError(err.response?.data?.error || t('members:linkFailed'));
     } finally {
       setLinkBusy(false);
     }
@@ -137,7 +139,7 @@ export default function Members() {
       await loadFamilyLinks(currentLedger.id);
       await refreshLedgers();
     } catch (err: any) {
-      setError(err.response?.data?.error || '解除关联失败');
+      setError(err.response?.data?.error || t('members:unlinkFailed'));
     } finally {
       setLinkBusy(false);
     }
@@ -151,7 +153,7 @@ export default function Members() {
       const res = await api.post(`/ledgers/${currentLedger.id}/invite`);
       setInviteCode(res.data.code);
     } catch (err: any) {
-      setError(err.response?.data?.error || '生成邀请码失败');
+      setError(err.response?.data?.error || t('members:inviteGenFailed'));
     } finally {
       setInviteLoading(false);
     }
@@ -163,7 +165,7 @@ export default function Members() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } else {
-      setError('当前环境无法自动复制，请手动复制邀请码');
+      setError(t('members:copyManual'));
     }
   };
 
@@ -175,7 +177,7 @@ export default function Members() {
       setRemoving(null);
       load(currentLedger.id);
     } catch (err: any) {
-      setError(err.response?.data?.error || '移除失败');
+      setError(err.response?.data?.error || t('members:removeFailed'));
     } finally {
       setActionLoading(false);
     }
@@ -184,7 +186,7 @@ export default function Members() {
   if (!currentLedger) {
     return (
       <Card>
-        <EmptyState icon={<Users size={18} />} title="请先选择账本" />
+        <EmptyState icon={<Users size={18} />} title={t('members:selectLedgerFirst')} />
       </Card>
     );
   }
@@ -194,17 +196,15 @@ export default function Members() {
       <div className="flex items-end justify-between gap-4 flex-wrap">
         <div>
           <p className="text-xs text-[var(--color-text-subtle)] uppercase tracking-widest">{currentLedger.name}</p>
-          <h1 className="text-xl font-semibold text-[var(--color-text)] mt-1">成员与共享</h1>
-          <p className="text-xs text-[var(--color-text-subtle)] mt-1">
-            邀请家人或伙伴共同使用同一个账本
-          </p>
+          <h1 className="text-xl font-semibold text-[var(--color-text)] mt-1">{t('members:title')}</h1>
+          <p className="text-xs text-[var(--color-text-subtle)] mt-1">{t('members:subtitle')}</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" leftIcon={<LogIn size={14} />} onClick={() => setJoinOpen(true)}>
-            加入账本
+            {t('members:joinLedger')}
           </Button>
           <Button size="sm" leftIcon={<Plus size={14} />} onClick={() => setNewLedgerOpen(true)}>
-            新建账本
+            {t('members:newLedger')}
           </Button>
         </div>
       </div>
@@ -214,8 +214,12 @@ export default function Members() {
         <Card padding="lg">
           <CardHeader
             icon={<Users size={16} />}
-            title="成员列表"
-            description={data?.members.length ? `${data.members.length} 位成员` : '暂无成员'}
+            title={t('members:memberList')}
+            description={
+              data?.members.length
+                ? t('members:memberCount', { count: data.members.length })
+                : t('members:noMembersDesc')
+            }
           />
           {loading ? (
             <div className="flex items-center justify-center py-10 text-[var(--color-text-subtle)]">
@@ -223,7 +227,11 @@ export default function Members() {
             </div>
           ) : !data?.members.length ? (
             <div className="mt-4">
-              <EmptyState icon={<Users size={18} />} title="暂无成员" description="生成邀请码让家人加入" />
+              <EmptyState
+                icon={<Users size={18} />}
+                title={t('members:emptyMembersTitle')}
+                description={t('members:emptyMembersDesc')}
+              />
             </div>
           ) : (
             <ul className="mt-4 divide-y divide-[var(--color-border)]">
@@ -239,7 +247,7 @@ export default function Members() {
                         {m.nickname || m.username}
                         {m.is_owner && (
                           <Badge tone="brand">
-                            <Crown size={10} /> 所有者
+                            <Crown size={10} /> {t('members:owner')}
                           </Badge>
                         )}
                       </p>
@@ -251,7 +259,7 @@ export default function Members() {
                     {data.is_owner && !m.is_owner && (
                       <button
                         onClick={() => setRemoving(m)}
-                        title="移除成员"
+                        title={t('members:removeMemberTitle')}
                         className="opacity-0 group-hover:opacity-100 w-8 h-8 flex items-center justify-center rounded-[var(--radius-md)] text-[var(--color-text-subtle)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] transition-all"
                       >
                         <Trash2 size={13} />
@@ -268,41 +276,43 @@ export default function Members() {
         <Card padding="lg">
           <CardHeader
             icon={<UserPlus size={16} />}
-            title="邀请新成员"
-            description="生成邀请码，分享给要加入的用户"
+            title={t('members:inviteTitle')}
+            description={t('members:inviteDesc')}
           />
           <div className="mt-4 space-y-4">
             {inviteCode ? (
               <div className="p-5 rounded-[var(--radius-lg)] bg-[var(--color-brand-soft)] border border-[var(--color-brand)]/20 text-center">
-                <p className="text-[11px] text-[var(--color-brand)] uppercase tracking-widest mb-2">邀请码</p>
+                <p className="text-[11px] text-[var(--color-brand)] uppercase tracking-widest mb-2">
+                  {t('members:inviteCodeLabel')}
+                </p>
                 <div className="text-3xl font-mono font-semibold text-[var(--color-brand)] tracking-[0.3em]">
                   {inviteCode}
                 </div>
-                <p className="text-[11px] text-[var(--color-text-subtle)] mt-2">24 小时内有效</p>
+                <p className="text-[11px] text-[var(--color-text-subtle)] mt-2">{t('members:inviteValid24h')}</p>
                 <div className="flex justify-center gap-2 mt-4">
                   <Button variant="outline" size="sm" leftIcon={copied ? <CheckCircle size={12} /> : <Copy size={12} />} onClick={copyInvite}>
-                    {copied ? '已复制' : '复制'}
+                    {copied ? t('members:copied') : t('members:copy')}
                   </Button>
                   <Button size="sm" loading={inviteLoading} onClick={generateInvite}>
-                    重新生成
+                    {t('members:regenerate')}
                   </Button>
                 </div>
               </div>
             ) : (
               <EmptyState
                 icon={<UserPlus size={18} />}
-                title="还没有邀请码"
-                description="点击下方按钮生成一个 8 位的邀请码"
+                title={t('members:noInviteTitle')}
+                description={t('members:noInviteDesc')}
                 action={
                   <Button size="sm" loading={inviteLoading} onClick={generateInvite}>
-                    生成邀请码
+                    {t('members:generateInvite')}
                   </Button>
                 }
               />
             )}
 
             <div className="p-3 rounded-[var(--radius-md)] bg-[var(--color-surface-muted)] text-xs text-[var(--color-text-muted)] leading-relaxed">
-              对方登录后进入「成员共享 · 加入账本」，输入此邀请码即可加入当前账本。
+              {t('members:inviteHint')}
             </div>
           </div>
         </Card>
@@ -312,8 +322,8 @@ export default function Members() {
         <Card padding="lg">
           <CardHeader
             icon={<Link2 size={16} />}
-            title="关联个人子账本"
-            description="将您名下的个人账本挂到本家庭账本，便于在家庭中对照「公账 / 私账」。每个个人账本只能关联一个家庭；解除后可换绑。"
+            title={t('members:linkPersonalTitle')}
+            description={t('members:linkPersonalDesc')}
           />
           <div className="mt-4 space-y-4">
             {linksLoading ? (
@@ -329,13 +339,13 @@ export default function Members() {
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-[var(--color-text)] truncate">{row.name}</p>
                           <p className="text-[11px] text-[var(--color-text-subtle)] truncate">
-                            所有者 · {row.owner_label}
+                            {t('members:ownerLine', { label: row.owner_label })}
                           </p>
                         </div>
                         {row.can_unlink && (
                           <button
                             type="button"
-                            title="解除关联"
+                            title={t('members:unlinkTitle')}
                             disabled={linkBusy}
                             onClick={() => removeFamilyLink(row.ledger_id)}
                             className="shrink-0 w-8 h-8 flex items-center justify-center rounded-[var(--radius-md)] text-[var(--color-text-subtle)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] transition-colors"
@@ -347,19 +357,19 @@ export default function Members() {
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-xs text-[var(--color-text-muted)]">暂无已关联的个人账本</p>
+                  <p className="text-xs text-[var(--color-text-muted)]">{t('members:noLinkedPersonal')}</p>
                 )}
 
                 {familyLinks && familyLinks.candidates.length > 0 && (
                   <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
                     <div className="flex-1 min-w-0">
                       <Select
-                        label="添加我的个人账本"
+                        label={t('members:addPersonalLabel')}
                         value={linkPick}
                         onChange={(e) => setLinkPick(e.target.value)}
-                        hint="仅列出您拥有、且尚未关联到其他家庭的个人账本"
+                        hint={t('members:addPersonalHint')}
                       >
-                        <option value="">请选择…</option>
+                        <option value="">{t('members:selectPlaceholder')}</option>
                         {familyLinks.candidates.map((c) => (
                           <option key={c.id} value={c.id}>
                             {c.name}
@@ -368,7 +378,7 @@ export default function Members() {
                       </Select>
                     </div>
                     <Button size="sm" disabled={!linkPick || linkBusy} loading={linkBusy} onClick={addFamilyLink}>
-                      关联
+                      {t('members:link')}
                     </Button>
                   </div>
                 )}
@@ -382,8 +392,8 @@ export default function Members() {
       <Card padding="lg">
         <CardHeader
           icon={<Zap size={16} />}
-          title="快速记账关键字"
-          description="在 Bot 消息中写入关键字，即可把这一笔记入当前账本"
+          title={t('members:keywordsTitle')}
+          description={t('members:keywordsDesc')}
         />
         <div className="mt-4">
           <LedgerKeywordsEditor ledgerId={currentLedger.id} />
@@ -412,22 +422,22 @@ export default function Members() {
         open={!!removing}
         onClose={() => setRemoving(null)}
         size="sm"
-        title="移除成员？"
-        description="该成员将失去此账本的访问权限"
+        title={t('members:removeConfirmTitle')}
+        description={t('members:removeConfirmDesc')}
         footer={
           <>
             <Button variant="outline" onClick={() => setRemoving(null)}>
-              取消
+              {t('common:cancel')}
             </Button>
             <Button variant="danger" loading={actionLoading} onClick={confirmRemove}>
-              移除
+              {t('members:remove')}
             </Button>
           </>
         }
       >
         {removing && (
           <p className="text-sm text-[var(--color-text)]">
-            将移除 <span className="font-semibold">{removing.nickname || removing.username}</span>
+            {t('members:removeLine', { name: removing.nickname || removing.username })}
           </p>
         )}
       </Modal>
@@ -446,6 +456,7 @@ const JoinLedgerModal: React.FC<{ open: boolean; onClose: () => void; onSuccess:
   onClose,
   onSuccess,
 }) => {
+  const { t } = useTranslation(['members', 'common']);
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -459,7 +470,7 @@ const JoinLedgerModal: React.FC<{ open: boolean; onClose: () => void; onSuccess:
 
   const submit = async () => {
     if (!code.trim()) {
-      setError('请输入邀请码');
+      setError(t('members:codeRequired'));
       return;
     }
     setLoading(true);
@@ -468,7 +479,7 @@ const JoinLedgerModal: React.FC<{ open: boolean; onClose: () => void; onSuccess:
       await api.post('/ledgers/join', { code: code.trim().toUpperCase() });
       onSuccess();
     } catch (err: any) {
-      setError(err.response?.data?.error || '加入失败');
+      setError(err.response?.data?.error || t('members:joinFailed'));
     } finally {
       setLoading(false);
     }
@@ -479,24 +490,24 @@ const JoinLedgerModal: React.FC<{ open: boolean; onClose: () => void; onSuccess:
       open={open}
       onClose={onClose}
       size="sm"
-      title="通过邀请码加入"
-      description="输入对方提供的 8 位邀请码"
+      title={t('members:joinTitle')}
+      description={t('members:joinDesc')}
       footer={
         <>
           <Button variant="outline" onClick={onClose}>
-            取消
+            {t('common:cancel')}
           </Button>
           <Button loading={loading} onClick={submit}>
-            加入
+            {t('members:join')}
           </Button>
         </>
       }
     >
       <Input
-        label="邀请码"
+        label={t('members:inviteCodeInput')}
         value={code}
         onChange={(e) => setCode(e.target.value.toUpperCase())}
-        placeholder="例如：AB12CD34"
+        placeholder={t('members:invitePlaceholder')}
         maxLength={8}
         className="font-mono tracking-widest text-center uppercase"
         error={error}
@@ -510,6 +521,7 @@ const CreateLedgerModal: React.FC<{ open: boolean; onClose: () => void; onSucces
   onClose,
   onSuccess,
 }) => {
+  const { t } = useTranslation(['members', 'common']);
   const [name, setName] = useState('');
   const [type, setType] = useState<'personal' | 'family'>('family');
   const [loading, setLoading] = useState(false);
@@ -525,7 +537,7 @@ const CreateLedgerModal: React.FC<{ open: boolean; onClose: () => void; onSucces
 
   const submit = async () => {
     if (!name.trim()) {
-      setError('请填写名称');
+      setError(t('members:nameRequired'));
       return;
     }
     setLoading(true);
@@ -534,7 +546,7 @@ const CreateLedgerModal: React.FC<{ open: boolean; onClose: () => void; onSucces
       await api.post('/ledgers', { name, type });
       onSuccess();
     } catch (err: any) {
-      setError(err.response?.data?.error || '创建失败');
+      setError(err.response?.data?.error || t('members:createFailed'));
     } finally {
       setLoading(false);
     }
@@ -545,44 +557,42 @@ const CreateLedgerModal: React.FC<{ open: boolean; onClose: () => void; onSucces
       open={open}
       onClose={onClose}
       size="sm"
-      title="新建账本"
+      title={t('members:createLedgerTitle')}
       footer={
         <>
           <Button variant="outline" onClick={onClose}>
-            取消
+            {t('common:cancel')}
           </Button>
           <Button loading={loading} onClick={submit}>
-            创建
+            {t('members:create')}
           </Button>
         </>
       }
     >
       <div className="space-y-3">
         <Input
-          label="账本名称"
+          label={t('common:ledgerName')}
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="例如：家庭账本 / 出差报销"
+          placeholder={t('members:ledgerNamePlaceholder')}
           error={error}
         />
         <div>
-          <p className="text-xs font-medium text-[var(--color-text-muted)] mb-1.5">类型</p>
-          <p className="text-[11px] text-[var(--color-text-subtle)] mb-2">
-            个人：仅自己使用；家庭：可生成邀请码让家人加入同一账本（加入后账本变为「家庭」类型）。
-          </p>
+          <p className="text-xs font-medium text-[var(--color-text-muted)] mb-1.5">{t('members:ledgerType')}</p>
+          <p className="text-[11px] text-[var(--color-text-subtle)] mb-2">{t('members:ledgerTypeHint')}</p>
           <div className="grid grid-cols-2 gap-2">
-            {(['personal', 'family'] as const).map((t) => (
+            {(['personal', 'family'] as const).map((ledgerKind) => (
               <button
-                key={t}
+                key={ledgerKind}
                 type="button"
-                onClick={() => setType(t)}
+                onClick={() => setType(ledgerKind)}
                 className={`h-10 rounded-[var(--radius-md)] border text-sm font-medium transition-all ${
-                  type === t
+                  type === ledgerKind
                     ? 'border-[var(--color-brand)] bg-[var(--color-brand-soft)] text-[var(--color-brand)]'
                     : 'border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-border-strong)]'
                 }`}
               >
-                {t === 'personal' ? '个人' : '家庭'}
+                {ledgerKind === 'personal' ? t('members:typePersonal') : t('members:typeFamily')}
               </button>
             ))}
           </div>

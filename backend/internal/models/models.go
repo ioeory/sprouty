@@ -38,6 +38,8 @@ type User struct {
 	IsActive bool    `gorm:"default:true;index" json:"is_active"`
 	// Role is "admin" or "user". First registered user becomes admin.
 	Role string `gorm:"size:16;default:user;index" json:"role"`
+	// PreferredLocale is optional UI language: "zh-CN" or "en" (BCP-47 subset).
+	PreferredLocale string `gorm:"size:16" json:"preferred_locale"`
 	// OIDC link (unique together when both set)
 	OIDCIssuer  *string `gorm:"size:512;index" json:"-"`
 	OIDCSubject *string `gorm:"size:255;index" json:"-"`
