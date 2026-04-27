@@ -56,7 +56,7 @@
   "nameRequired": "Name is required",
   "createFailed": "Create failed",
   "ledgerType": "Type",
-  "ledgerTypeHint": "Personal: yours only. Family: invite others; the ledger becomes a shared family book.",
+  "ledgerTypeHint": "Personal: yours by default; you can still invite others and the ledger stays personal. Family: shared household book with invites and optional linked personal ledgers on Members. Change type anytime in ledger settings.",
   "typePersonal": "Personal",
   "typeFamily": "Family",
   "ledgerKwDuplicate": "Keyword already exists",

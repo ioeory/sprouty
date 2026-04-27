@@ -163,7 +163,7 @@ func CreateLedger(c *gin.Context) {
 	c.JSON(http.StatusCreated, ledger)
 }
 
-// UpdateLedger renames a ledger (owner only).
+// UpdateLedger updates ledger name and optionally type (owner only).
 func UpdateLedger(c *gin.Context) {
 	userID := c.MustGet("user_id").(string)
 	userUUID, err := uuid.Parse(userID)
@@ -177,7 +177,8 @@ func UpdateLedger(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Name string `json:"name" binding:"required"`
+		Name string  `json:"name" binding:"required"`
+		Type *string `json:"type,omitempty"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -193,15 +194,56 @@ func UpdateLedger(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "only the owner can rename"})
 		return
 	}
-	old := ledger.Name
-	if err := service.DB.Model(&ledger).Update("name", req.Name).Error; err != nil {
+
+	oldName := ledger.Name
+	oldType := ledger.Type
+	newName := strings.TrimSpace(req.Name)
+	if newName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+		return
+	}
+
+	updates := map[string]interface{}{"name": newName}
+
+	if req.Type != nil {
+		newType := strings.TrimSpace(*req.Type)
+		if newType != "personal" && newType != "family" {
+			c.JSON(http.StatusBadRequest, ErrorJSON(c, "ledger.type_invalid"))
+			return
+		}
+		if newType != ledger.Type {
+			if ledger.Type == "family" && newType == "personal" {
+				var n int64
+				service.DB.Model(&models.LedgerFamilyLink{}).Where("family_ledger_id = ?", ledgerID).Count(&n)
+				if n > 0 {
+					c.JSON(http.StatusConflict, ErrorJSON(c, "ledger.demote_requires_unlink_children"))
+					return
+				}
+			}
+			if ledger.Type == "personal" && newType == "family" {
+				var n int64
+				service.DB.Model(&models.LedgerFamilyLink{}).Where("personal_ledger_id = ?", ledgerID).Count(&n)
+				if n > 0 {
+					c.JSON(http.StatusConflict, ErrorJSON(c, "ledger.promote_requires_unlink_parent"))
+					return
+				}
+			}
+			updates["type"] = newType
+		}
+	}
+
+	if err := service.DB.Model(&ledger).Updates(updates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	service.DB.First(&ledger, "id = ?", ledgerID)
-	WriteAuditLog(c, &userUUID, "ledger.update", "ledger", strPtr(ledgerID.String()), map[string]interface{}{
-		"from": old, "to": req.Name,
-	})
+
+	meta := map[string]interface{}{"from": oldName, "to": ledger.Name}
+	if oldType != ledger.Type {
+		meta["type_from"] = oldType
+		meta["type_to"] = ledger.Type
+	}
+	WriteAuditLog(c, &userUUID, "ledger.update", "ledger", strPtr(ledgerID.String()), meta)
 	c.JSON(http.StatusOK, gin.H{
 		"id":         ledger.ID,
 		"name":       ledger.Name,

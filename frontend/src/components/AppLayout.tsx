@@ -78,6 +78,7 @@ export default function AppLayout() {
   });
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState('');
+  const [renameLedgerType, setRenameLedgerType] = useState<'personal' | 'family'>('personal');
   const [renameSaving, setRenameSaving] = useState(false);
   const [renameErr, setRenameErr] = useState('');
 
@@ -262,9 +263,10 @@ export default function AppLayout() {
                 {currentLedger && user?.id && currentLedger.owner_id === user.id && (
                   <button
                     type="button"
-                    title={t('common:renameLedger')}
+                    title={t('common:ledgerSettings')}
                     onClick={() => {
                       setRenameValue(currentLedger.name);
+                      setRenameLedgerType(currentLedger.type === 'family' ? 'family' : 'personal');
                       setRenameErr('');
                       setRenameOpen(true);
                     }}
@@ -403,7 +405,7 @@ export default function AppLayout() {
           <Modal
             open={renameOpen}
             onClose={() => !renameSaving && setRenameOpen(false)}
-            title={t('common:renameLedger')}
+            title={t('common:ledgerSettings')}
             footer={
               <div className="flex justify-end gap-2">
                 <Button variant="ghost" size="sm" disabled={renameSaving} onClick={() => setRenameOpen(false)}>
@@ -421,11 +423,8 @@ export default function AppLayout() {
                     setRenameSaving(true);
                     setRenameErr('');
                     try {
-                      await api.put(`/ledgers/${currentLedger.id}`, { name });
+                      await api.put(`/ledgers/${currentLedger.id}`, { name, type: renameLedgerType });
                       await refreshLedgers();
-                      setCurrentLedgerState((prev) =>
-                        prev && prev.id === currentLedger.id ? { ...prev, name } : prev,
-                      );
                       setRenameOpen(false);
                     } catch (e: any) {
                       setRenameErr(e.response?.data?.error || t('common:saveFailed'));
@@ -442,7 +441,30 @@ export default function AppLayout() {
             {renameErr && (
               <p className="text-xs text-[var(--color-danger)] mb-2">{renameErr}</p>
             )}
-            <Input label={t('common:ledgerName')} value={renameValue} onChange={(e) => setRenameValue(e.target.value)} autoFocus />
+            <div className="space-y-4">
+              <Input label={t('common:ledgerName')} value={renameValue} onChange={(e) => setRenameValue(e.target.value)} autoFocus />
+              <div>
+                <p className="text-xs font-medium text-[var(--color-text-muted)] mb-1.5">{t('common:ledgerTypeLabel')}</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['personal', 'family'] as const).map((kind) => (
+                    <button
+                      key={kind}
+                      type="button"
+                      onClick={() => setRenameLedgerType(kind)}
+                      className={cn(
+                        'h-10 rounded-[var(--radius-md)] border text-sm font-medium transition-all',
+                        renameLedgerType === kind
+                          ? 'border-[var(--color-brand)] bg-[var(--color-brand-soft)] text-[var(--color-brand)]'
+                          : 'border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-border-strong)]',
+                      )}
+                    >
+                      {kind === 'personal' ? t('common:ledgerTypePersonal') : t('common:ledgerTypeFamily')}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-[var(--color-text-subtle)] mt-2 leading-relaxed">{t('common:ledgerTypeModalHint')}</p>
+              </div>
+            </div>
           </Modal>
         )}
 

@@ -102,11 +102,6 @@ func JoinLedger(c *gin.Context) {
 		return
 	}
 
-	// Promote ledger to "family" type if it was personal
-	service.DB.Model(&models.Ledger{}).
-		Where("id = ? AND type <> ?", invite.LedgerID, "family").
-		Update("type", "family")
-
 	// Delete the invite (one-time use)
 	service.DB.Delete(&invite)
 

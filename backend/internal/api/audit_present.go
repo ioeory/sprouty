@@ -473,8 +473,24 @@ func auditBuildSummary(
 	case "ledger.update":
 		from := metaString(meta, "from")
 		to := metaString(meta, "to")
+		tf := metaString(meta, "type_from")
+		tt := metaString(meta, "type_to")
+		nameChanged := from != to
+		typeChanged := tf != "" && tt != "" && tf != tt
 		if en {
-			return fmt.Sprintf("%s renamed %s from \"%s\" to \"%s\".", actorLabel, resourceLabel, from, to)
+			if nameChanged && typeChanged {
+				return fmt.Sprintf("%s updated %s: name %q to %q, type %s to %s.", actorLabel, resourceLabel, from, to, tf, tt)
+			}
+			if typeChanged {
+				return fmt.Sprintf("%s changed %s type from %s to %s.", actorLabel, resourceLabel, tf, tt)
+			}
+			return fmt.Sprintf("%s renamed %s from %q to %q.", actorLabel, resourceLabel, from, to)
+		}
+		if nameChanged && typeChanged {
+			return fmt.Sprintf("%s 更新了 %s：名称「%s」→「%s」，类型 %s→%s。", actorLabel, resourceLabel, from, to, tf, tt)
+		}
+		if typeChanged {
+			return fmt.Sprintf("%s 将 %s 类型由 %s 改为 %s。", actorLabel, resourceLabel, tf, tt)
 		}
 		return fmt.Sprintf("%s 将 %s 名称由「%s」改为「%s」。", actorLabel, resourceLabel, from, to)
 	case "ledger.invite_created":

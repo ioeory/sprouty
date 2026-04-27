@@ -56,7 +56,7 @@
   "nameRequired": "请填写名称",
   "createFailed": "创建失败",
   "ledgerType": "类型",
-  "ledgerTypeHint": "个人：仅自己使用；家庭：可生成邀请码让家人加入同一账本（加入后账本变为「家庭」类型）。",
+  "ledgerTypeHint": "个人：仅自己使用，也可用邀请码与他人共享且账本类型仍为个人。家庭：适合家庭公账，可生成邀请码、并可在成员页关联个人子账本。类型可在账本设置中修改。",
   "typePersonal": "个人",
   "typeFamily": "家庭",
   "ledgerKwDuplicate": "关键字已存在",
