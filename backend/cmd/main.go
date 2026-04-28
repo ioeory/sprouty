@@ -113,10 +113,12 @@ func main() {
 		protected.GET("/bot/binding-code", api.GetBindingCode)
 		protected.GET("/bot/status", api.GetBotStatus)
 
-		// Scheduled digest push (Telegram)
-		protected.GET("/push-settings", api.GetPushSettings)
-		protected.PUT("/push-settings", api.PutPushSettings)
-		protected.POST("/push-settings/test", api.PostPushSettingsTest)
+		// Scheduled digest push (Telegram) — multiple subscriptions per user
+		protected.GET("/push-subscriptions", api.ListPushSubscriptions)
+		protected.POST("/push-subscriptions", api.CreatePushSubscription)
+		protected.PUT("/push-subscriptions/:id", api.UpdatePushSubscription)
+		protected.DELETE("/push-subscriptions/:id", api.DeletePushSubscription)
+		protected.POST("/push-subscriptions/:id/test", api.PostPushSubscriptionTest)
 	}
 
 	// Start Bot Manager (Phase 4)

@@ -66,7 +66,22 @@ func InitDB() {
 	ensureRegistrationOpenWhenNoUsers()
 	backfillSingleUserAdmin()
 	ensureAtLeastOneAdmin()
+	ensurePushSubscriptionMultiRow()
 	fmt.Println("Database connection established and migrated.")
+}
+
+// ensurePushSubscriptionMultiRow drops the legacy unique index on user_id so each user
+// can have multiple push subscriptions. GORM may have created different names across versions.
+func ensurePushSubscriptionMultiRow() {
+	for _, stmt := range []string{
+		`DROP INDEX IF EXISTS idx_push_notification_settings_user_id`,
+		`ALTER TABLE push_notification_settings DROP CONSTRAINT IF EXISTS uni_push_notification_settings_user_id`,
+		`ALTER TABLE push_notification_settings DROP CONSTRAINT IF EXISTS push_notification_settings_user_id_key`,
+	} {
+		if err := DB.Exec(stmt).Error; err != nil {
+			log.Printf("ensurePushSubscriptionMultiRow: %v", err)
+		}
+	}
 }
 
 // ensurePasswordNullable allows NULL password for OIDC-only users (legacy NOT NULL column).

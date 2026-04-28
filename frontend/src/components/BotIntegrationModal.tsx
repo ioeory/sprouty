@@ -9,11 +9,14 @@ import {
   RefreshCw,
   Bell,
   Link2,
+  Plus,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import api from '../api/client';
 import { copyToClipboard } from '../lib/copyToClipboard';
 import { Button, Modal, Badge, Select, Input } from './ui';
-import { useLayout } from './AppLayout';
+import { useLayout, type Ledger } from './AppLayout';
 
 interface Props {
   open: boolean;
@@ -30,14 +33,18 @@ interface Status {
   platforms: Platform[];
 }
 
-interface PushSettings {
-  id?: string;
+export interface PushSubscription {
+  id: string;
+  user_id?: string;
+  name: string;
+  message_locale: string;
   enabled: boolean;
   ledger_id: string;
   schedule_type: string;
   push_hour: number;
   push_minute: number;
   weekday: number;
+  day_of_month: number;
   timezone: string;
   include_budget_remaining: boolean;
   include_today_expense: boolean;
@@ -55,6 +62,29 @@ const COMMON_TIMEZONES = [
   'America/Los_Angeles',
 ];
 
+function defaultDraft(ledgers: Ledger[], current: Ledger | null): PushSubscription {
+  const nilUUID = '00000000-0000-0000-0000-000000000000';
+  let lid = current?.id || '';
+  if (!lid && ledgers[0]?.id) lid = ledgers[0].id;
+  if (lid === nilUUID) lid = ledgers[0]?.id || '';
+  return {
+    id: '',
+    name: '',
+    message_locale: 'auto',
+    enabled: false,
+    ledger_id: lid,
+    schedule_type: 'daily',
+    push_hour: 9,
+    push_minute: 0,
+    weekday: 1,
+    day_of_month: 1,
+    timezone: 'Asia/Shanghai',
+    include_budget_remaining: true,
+    include_today_expense: true,
+    custom_prefix: '',
+  };
+}
+
 const BotIntegrationModal: React.FC<Props> = ({ open, onClose }) => {
   const { t } = useTranslation('bot');
   const { ledgers, currentLedger } = useLayout();
@@ -71,18 +101,23 @@ const BotIntegrationModal: React.FC<Props> = ({ open, onClose }) => {
   const [pushErr, setPushErr] = useState('');
   const [pushOk, setPushOk] = useState('');
   const [tzCustom, setTzCustom] = useState(false);
-  const [push, setPush] = useState<PushSettings>({
-    enabled: false,
-    ledger_id: '',
-    schedule_type: 'daily',
-    push_hour: 9,
-    push_minute: 0,
-    weekday: 1,
-    timezone: 'Asia/Shanghai',
-    include_budget_remaining: true,
-    include_today_expense: true,
-    custom_prefix: '',
-  });
+  const [subs, setSubs] = useState<PushSubscription[]>([]);
+  const [draft, setDraft] = useState<PushSubscription | null>(null);
+
+  const ledgerName = (id: string) => ledgers.find((l) => l.id === id)?.name || id.slice(0, 8);
+
+  const scheduleSummary = (s: PushSubscription) => {
+    const hm = `${String(s.push_hour).padStart(2, '0')}:${String(s.push_minute).padStart(2, '0')}`;
+    if (s.schedule_type === 'weekly') {
+      const d = ['pushDay0', 'pushDay1', 'pushDay2', 'pushDay3', 'pushDay4', 'pushDay5', 'pushDay6'] as const;
+      const key = d[s.weekday] ?? 'pushDay0';
+      return `${t('pushWeekly')} · ${t(key)} · ${hm}`;
+    }
+    if (s.schedule_type === 'monthly') {
+      return `${t('pushMonthly')} · ${t('pushDayOfMonth', { day: s.day_of_month })} · ${hm}`;
+    }
+    return `${t('pushDaily')} · ${hm}`;
+  };
 
   useEffect(() => {
     if (open) fetchStatus();
@@ -92,31 +127,15 @@ const BotIntegrationModal: React.FC<Props> = ({ open, onClose }) => {
     setPushLoading(true);
     setPushErr('');
     try {
-      const res = await api.get<PushSettings>('/push-settings');
-      const d = res.data;
-      const nilUUID = '00000000-0000-0000-0000-000000000000';
-      let lid = d.ledger_id && d.ledger_id !== nilUUID ? d.ledger_id : '';
-      if (!lid && currentLedger?.id) lid = currentLedger.id;
-      if (!lid && ledgers[0]?.id) lid = ledgers[0].id;
-      setPush({
-        enabled: !!d.enabled,
-        ledger_id: lid,
-        schedule_type: d.schedule_type === 'weekly' ? 'weekly' : 'daily',
-        push_hour: Number.isFinite(d.push_hour) ? d.push_hour : 9,
-        push_minute: Number.isFinite(d.push_minute) ? d.push_minute : 0,
-        weekday: Number.isFinite(d.weekday) ? d.weekday : 1,
-        timezone: d.timezone || 'Asia/Shanghai',
-        include_budget_remaining: d.include_budget_remaining !== false,
-        include_today_expense: d.include_today_expense !== false,
-        custom_prefix: d.custom_prefix || '',
-      });
-      setTzCustom(!COMMON_TIMEZONES.includes(d.timezone || ''));
+      const res = await api.get<{ subscriptions: PushSubscription[] }>('/push-subscriptions');
+      setSubs(res.data?.subscriptions || []);
     } catch {
       setPushErr(t('pushLoadError'));
+      setSubs([]);
     } finally {
       setPushLoading(false);
     }
-  }, [currentLedger?.id, ledgers, t]);
+  }, [t]);
 
   useEffect(() => {
     if (open && tab === 'push') void loadPush();
@@ -128,6 +147,7 @@ const BotIntegrationModal: React.FC<Props> = ({ open, onClose }) => {
       setPin(null);
       setPushOk('');
       setPushErr('');
+      setDraft(null);
     }
   }, [open]);
 
@@ -169,26 +189,54 @@ const BotIntegrationModal: React.FC<Props> = ({ open, onClose }) => {
     ? `https://t.me/${botUsername}${pin ? `?start=bind_${pin}` : ''}`
     : 'https://t.me';
 
-  const savePush = async () => {
+  const openNewDraft = () => {
+    const d = defaultDraft(ledgers, currentLedger);
+    setDraft(d);
+    setTzCustom(!COMMON_TIMEZONES.includes(d.timezone));
+    setPushErr('');
+  };
+
+  const openEditDraft = (s: PushSubscription) => {
+    setDraft({ ...s });
+    setTzCustom(!COMMON_TIMEZONES.includes(s.timezone || ''));
+    setPushErr('');
+  };
+
+  const closeDraft = () => {
+    setDraft(null);
+    setTzCustom(false);
+  };
+
+  const saveDraft = async () => {
+    if (!draft || !draft.ledger_id) return;
     setPushSaving(true);
     setPushErr('');
     setPushOk('');
     try {
-      const tz = push.timezone.trim() || 'Asia/Shanghai';
-      await api.put('/push-settings', {
-        enabled: push.enabled,
-        ledger_id: push.ledger_id,
-        schedule_type: push.schedule_type,
-        push_hour: push.push_hour,
-        push_minute: push.push_minute,
-        weekday: push.weekday,
-        timezone: tz,
-        include_budget_remaining: push.include_budget_remaining,
-        include_today_expense: push.include_today_expense,
-        custom_prefix: push.custom_prefix.trim(),
-      });
+      const body = {
+        name: draft.name.trim(),
+        message_locale: draft.message_locale || 'auto',
+        enabled: draft.enabled,
+        ledger_id: draft.ledger_id,
+        schedule_type: draft.schedule_type,
+        push_hour: draft.push_hour,
+        push_minute: draft.push_minute,
+        weekday: draft.weekday,
+        day_of_month: draft.day_of_month,
+        timezone: draft.timezone.trim() || 'Asia/Shanghai',
+        include_budget_remaining: draft.include_budget_remaining,
+        include_today_expense: draft.include_today_expense,
+        custom_prefix: draft.custom_prefix.trim(),
+      };
+      if (!draft.id) {
+        await api.post('/push-subscriptions', body);
+      } else {
+        await api.put(`/push-subscriptions/${draft.id}`, body);
+      }
       setPushOk(t('pushSaved'));
       setTimeout(() => setPushOk(''), 3000);
+      closeDraft();
+      await loadPush();
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error;
       setPushErr(msg || t('pushSaveError'));
@@ -197,12 +245,28 @@ const BotIntegrationModal: React.FC<Props> = ({ open, onClose }) => {
     }
   };
 
-  const testPush = async () => {
+  const deleteSub = async (id: string) => {
+    if (!window.confirm(t('pushDeleteConfirm'))) return;
+    setPushSaving(true);
+    setPushErr('');
+    try {
+      await api.delete(`/push-subscriptions/${id}`);
+      await loadPush();
+      if (draft?.id === id) closeDraft();
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      setPushErr(msg || t('pushSaveError'));
+    } finally {
+      setPushSaving(false);
+    }
+  };
+
+  const testSub = async (id: string) => {
     setPushSaving(true);
     setPushErr('');
     setPushOk('');
     try {
-      await api.post('/push-settings/test');
+      await api.post(`/push-subscriptions/${id}/test`);
       setPushOk(t('pushTestOk'));
       setTimeout(() => setPushOk(''), 4000);
     } catch (e: unknown) {
@@ -211,6 +275,10 @@ const BotIntegrationModal: React.FC<Props> = ({ open, onClose }) => {
     } finally {
       setPushSaving(false);
     }
+  };
+
+  const setDraftField = <K extends keyof PushSubscription>(key: K, value: PushSubscription[K]) => {
+    setDraft((d) => (d ? { ...d, [key]: value } : d));
   };
 
   return (
@@ -365,164 +433,289 @@ const BotIntegrationModal: React.FC<Props> = ({ open, onClose }) => {
               {t('pushNeedTelegram')}
             </p>
           )}
+
           {pushLoading ? (
             <p className="text-xs text-[var(--color-text-subtle)]">{t('pushLoading')}</p>
           ) : (
             <>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="rounded border-[var(--color-border)]"
-                  checked={push.enabled}
-                  onChange={(e) => setPush((p) => ({ ...p, enabled: e.target.checked }))}
-                />
-                <span>{t('pushEnable')}</span>
-              </label>
-
-              <Select
-                label={t('pushLedger')}
-                value={push.ledger_id}
-                onChange={(e) => setPush((p) => ({ ...p, ledger_id: e.target.value }))}
-              >
-                <option value="">{t('pushLedgerPlaceholder')}</option>
-                {ledgers.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.name}
-                  </option>
-                ))}
-              </Select>
-
-              <Select
-                label={t('pushSchedule')}
-                value={push.schedule_type}
-                onChange={(e) => setPush((p) => ({ ...p, schedule_type: e.target.value }))}
-              >
-                <option value="daily">{t('pushDaily')}</option>
-                <option value="weekly">{t('pushWeekly')}</option>
-              </Select>
-
-              {push.schedule_type === 'weekly' && (
-                <Select
-                  label={t('pushWeekday')}
-                  value={String(push.weekday)}
-                  onChange={(e) => setPush((p) => ({ ...p, weekday: Number(e.target.value) }))}
-                >
-                  <option value="0">{t('pushDay0')}</option>
-                  <option value="1">{t('pushDay1')}</option>
-                  <option value="2">{t('pushDay2')}</option>
-                  <option value="3">{t('pushDay3')}</option>
-                  <option value="4">{t('pushDay4')}</option>
-                  <option value="5">{t('pushDay5')}</option>
-                  <option value="6">{t('pushDay6')}</option>
-                </Select>
-              )}
-
-              <div className="grid grid-cols-2 gap-3">
-                <Input
-                  label={t('pushHour')}
-                  type="number"
-                  min={0}
-                  max={23}
-                  value={push.push_hour}
-                  onChange={(e) => setPush((p) => ({ ...p, push_hour: Math.min(23, Math.max(0, Number(e.target.value))) }))}
-                />
-                <Input
-                  label={t('pushMinute')}
-                  type="number"
-                  min={0}
-                  max={59}
-                  value={push.push_minute}
-                  onChange={(e) => setPush((p) => ({ ...p, push_minute: Math.min(59, Math.max(0, Number(e.target.value))) }))}
-                />
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-medium text-[var(--color-text-muted)]">{t('pushListTitle')}</p>
+                <Button size="sm" variant="outline" leftIcon={<Plus size={14} />} onClick={openNewDraft} disabled={!!draft}>
+                  {t('pushAdd')}
+                </Button>
               </div>
 
-              {!tzCustom ? (
-                <Select
-                  label={t('pushTimezone')}
-                  value={COMMON_TIMEZONES.includes(push.timezone) ? push.timezone : '__custom__'}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (v === '__custom__') {
-                      setTzCustom(true);
-                    } else {
-                      setPush((p) => ({ ...p, timezone: v }));
-                    }
-                  }}
-                >
-                  {COMMON_TIMEZONES.map((z) => (
-                    <option key={z} value={z}>
-                      {z}
-                    </option>
-                  ))}
-                  <option value="__custom__">{t('pushTimezoneCustom')}</option>
-                </Select>
-              ) : (
-                <div className="space-y-1.5">
-                  <Input
-                    label={t('pushTimezone')}
-                    value={push.timezone}
-                    onChange={(e) => setPush((p) => ({ ...p, timezone: e.target.value }))}
-                    placeholder="IANA, e.g. Asia/Shanghai"
-                  />
-                  <button
-                    type="button"
-                    className="text-xs text-[var(--color-brand)] hover:underline"
-                    onClick={() => {
-                      setTzCustom(false);
-                      if (!COMMON_TIMEZONES.includes(push.timezone)) {
-                        setPush((p) => ({ ...p, timezone: 'Asia/Shanghai' }));
-                      }
-                    }}
+              {subs.length === 0 && !draft && (
+                <p className="text-xs text-[var(--color-text-subtle)] border border-dashed border-[var(--color-border)] rounded-[var(--radius-md)] px-3 py-3">
+                  {t('pushListEmpty')}
+                </p>
+              )}
+
+              <ul className="space-y-2">
+                {subs.map((s) => (
+                  <li
+                    key={s.id}
+                    className="flex flex-col sm:flex-row sm:items-center gap-2 p-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)]/40"
                   >
-                    {t('pushTimezonePreset')}
-                  </button>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-[var(--color-text)] truncate">
+                        {s.name?.trim() || t('pushUntitled')}
+                        {s.enabled ? (
+                          <Badge tone="success" className="ml-2 text-[10px]">
+                            {t('pushOn')}
+                          </Badge>
+                        ) : (
+                          <span className="ml-2 text-[10px] text-[var(--color-text-subtle)]">{t('pushOff')}</span>
+                        )}
+                      </p>
+                      <p className="text-[11px] text-[var(--color-text-subtle)] mt-0.5">
+                        {ledgerName(s.ledger_id)} · {scheduleSummary(s)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        title={t('pushEdit')}
+                        disabled={!!draft}
+                        onClick={() => openEditDraft(s)}
+                        className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-md)] border border-[var(--color-border)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)]"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        title={t('pushTest')}
+                        disabled={!status?.connected || pushSaving}
+                        onClick={() => testSub(s.id)}
+                        className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-md)] border border-[var(--color-border)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] text-[10px] font-medium"
+                      >
+                        T
+                      </button>
+                      <button
+                        type="button"
+                        title={t('pushDelete')}
+                        disabled={pushSaving}
+                        onClick={() => deleteSub(s.id)}
+                        className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-md)] border border-[var(--color-border)] hover:bg-[var(--color-danger-soft)] text-[var(--color-danger)]"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+
+              {draft && (
+                <div className="space-y-4 pt-2 border-t border-[var(--color-border)]">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium text-[var(--color-text)]">
+                      {draft.id ? t('pushEditTitle') : t('pushNewTitle')}
+                    </p>
+                    <button type="button" className="text-xs text-[var(--color-brand)] hover:underline" onClick={closeDraft}>
+                      {t('pushCancelForm')}
+                    </button>
+                  </div>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="rounded border-[var(--color-border)]"
+                      checked={draft.enabled}
+                      onChange={(e) => setDraftField('enabled', e.target.checked)}
+                    />
+                    <span>{t('pushEnable')}</span>
+                  </label>
+
+                  <Input
+                    label={t('pushNameLabel')}
+                    value={draft.name}
+                    onChange={(e) => setDraftField('name', e.target.value)}
+                    placeholder={t('pushNamePlaceholder')}
+                  />
+
+                  <Select
+                    label={t('pushMessageLocale')}
+                    value={draft.message_locale || 'auto'}
+                    onChange={(e) => setDraftField('message_locale', e.target.value)}
+                  >
+                    <option value="auto">{t('pushLocaleAuto')}</option>
+                    <option value="zh-CN">{t('pushLocaleZh')}</option>
+                    <option value="en">{t('pushLocaleEn')}</option>
+                  </Select>
+
+                  <Select
+                    label={t('pushLedger')}
+                    value={draft.ledger_id}
+                    onChange={(e) => setDraftField('ledger_id', e.target.value)}
+                  >
+                    <option value="">{t('pushLedgerPlaceholder')}</option>
+                    {ledgers.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.name}
+                      </option>
+                    ))}
+                  </Select>
+
+                  <Select
+                    label={t('pushSchedule')}
+                    value={draft.schedule_type}
+                    onChange={(e) => setDraftField('schedule_type', e.target.value)}
+                  >
+                    <option value="daily">{t('pushDaily')}</option>
+                    <option value="weekly">{t('pushWeekly')}</option>
+                    <option value="monthly">{t('pushMonthly')}</option>
+                  </Select>
+
+                  {draft.schedule_type === 'weekly' && (
+                    <Select
+                      label={t('pushWeekday')}
+                      value={String(draft.weekday)}
+                      onChange={(e) => setDraftField('weekday', Number(e.target.value))}
+                    >
+                      <option value="0">{t('pushDay0')}</option>
+                      <option value="1">{t('pushDay1')}</option>
+                      <option value="2">{t('pushDay2')}</option>
+                      <option value="3">{t('pushDay3')}</option>
+                      <option value="4">{t('pushDay4')}</option>
+                      <option value="5">{t('pushDay5')}</option>
+                      <option value="6">{t('pushDay6')}</option>
+                    </Select>
+                  )}
+
+                  {draft.schedule_type === 'monthly' && (
+                    <Input
+                      label={t('pushDayOfMonthLabel')}
+                      type="number"
+                      min={1}
+                      max={31}
+                      value={draft.day_of_month}
+                      onChange={(e) =>
+                        setDraftField('day_of_month', Math.min(31, Math.max(1, Number(e.target.value) || 1)))
+                      }
+                    />
+                  )}
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <Input
+                      label={t('pushHour')}
+                      type="number"
+                      min={0}
+                      max={23}
+                      value={draft.push_hour}
+                      onChange={(e) =>
+                        setDraftField('push_hour', Math.min(23, Math.max(0, Number(e.target.value))))
+                      }
+                    />
+                    <Input
+                      label={t('pushMinute')}
+                      type="number"
+                      min={0}
+                      max={59}
+                      value={draft.push_minute}
+                      onChange={(e) =>
+                        setDraftField('push_minute', Math.min(59, Math.max(0, Number(e.target.value))))
+                      }
+                    />
+                  </div>
+
+                  {!tzCustom ? (
+                    <Select
+                      label={t('pushTimezone')}
+                      value={COMMON_TIMEZONES.includes(draft.timezone) ? draft.timezone : '__custom__'}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v === '__custom__') {
+                          setTzCustom(true);
+                        } else {
+                          setDraftField('timezone', v);
+                        }
+                      }}
+                    >
+                      {COMMON_TIMEZONES.map((z) => (
+                        <option key={z} value={z}>
+                          {z}
+                        </option>
+                      ))}
+                      <option value="__custom__">{t('pushTimezoneCustom')}</option>
+                    </Select>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <Input
+                        label={t('pushTimezone')}
+                        value={draft.timezone}
+                        onChange={(e) => setDraftField('timezone', e.target.value)}
+                        placeholder="IANA, e.g. Asia/Shanghai"
+                      />
+                      <button
+                        type="button"
+                        className="text-xs text-[var(--color-brand)] hover:underline"
+                        onClick={() => {
+                          setTzCustom(false);
+                          if (!COMMON_TIMEZONES.includes(draft.timezone)) {
+                            setDraftField('timezone', 'Asia/Shanghai');
+                          }
+                        }}
+                      >
+                        {t('pushTimezonePreset')}
+                      </button>
+                    </div>
+                  )}
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="rounded border-[var(--color-border)]"
+                      checked={draft.include_budget_remaining}
+                      onChange={(e) => setDraftField('include_budget_remaining', e.target.checked)}
+                    />
+                    <span>{t('pushIncludeBudget')}</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="rounded border-[var(--color-border)]"
+                      checked={draft.include_today_expense}
+                      onChange={(e) => setDraftField('include_today_expense', e.target.checked)}
+                    />
+                    <span>{t('pushIncludeToday')}</span>
+                  </label>
+
+                  <Input
+                    label={t('pushCustomPrefix')}
+                    value={draft.custom_prefix}
+                    onChange={(e) => setDraftField('custom_prefix', e.target.value)}
+                    placeholder={t('pushCustomPlaceholder')}
+                  />
+                  <p className="text-[11px] text-[var(--color-text-subtle)]">{t('pushCustomHint')}</p>
+
+                  {pushErr && <p className="text-xs text-[var(--color-danger)]">{pushErr}</p>}
+                  {pushOk && <p className="text-xs text-[var(--color-success)]">{pushOk}</p>}
+
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <Button fullWidth loading={pushSaving} onClick={saveDraft} disabled={!draft.ledger_id}>
+                      {t('pushSave')}
+                    </Button>
+                    {draft.id ? (
+                      <Button
+                        fullWidth
+                        variant="secondary"
+                        loading={pushSaving}
+                        onClick={() => testSub(draft.id)}
+                        disabled={!status?.connected}
+                      >
+                        {t('pushTest')}
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
               )}
 
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="rounded border-[var(--color-border)]"
-                  checked={push.include_budget_remaining}
-                  onChange={(e) => setPush((p) => ({ ...p, include_budget_remaining: e.target.checked }))}
-                />
-                <span>{t('pushIncludeBudget')}</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="rounded border-[var(--color-border)]"
-                  checked={push.include_today_expense}
-                  onChange={(e) => setPush((p) => ({ ...p, include_today_expense: e.target.checked }))}
-                />
-                <span>{t('pushIncludeToday')}</span>
-              </label>
-
-              <Input
-                label={t('pushCustomPrefix')}
-                value={push.custom_prefix}
-                onChange={(e) => setPush((p) => ({ ...p, custom_prefix: e.target.value }))}
-                placeholder={t('pushCustomPlaceholder')}
-              />
-              <p className="text-[11px] text-[var(--color-text-subtle)]">{t('pushCustomHint')}</p>
-
-              {pushErr && <p className="text-xs text-[var(--color-danger)]">{pushErr}</p>}
-              {pushOk && <p className="text-xs text-[var(--color-success)]">{pushOk}</p>}
-
-              <div className="flex flex-col sm:flex-row gap-2 pt-1">
-                <Button fullWidth loading={pushSaving} onClick={savePush} disabled={!push.ledger_id}>
-                  {t('pushSave')}
-                </Button>
-                <Button
-                  fullWidth
-                  variant="secondary"
-                  loading={pushSaving}
-                  onClick={testPush}
-                  disabled={!status?.connected}
-                >
-                  {t('pushTest')}
-                </Button>
-              </div>
+              {!draft && (
+                <>
+                  {pushErr && <p className="text-xs text-[var(--color-danger)]">{pushErr}</p>}
+                  {pushOk && <p className="text-xs text-[var(--color-success)]">{pushOk}</p>}
+                </>
+              )}
             </>
           )}
         </div>

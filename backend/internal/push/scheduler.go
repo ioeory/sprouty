@@ -9,14 +9,6 @@ import (
 	"sprouts-self/backend/internal/models"
 )
 
-func userPreferredEnglish(db *gorm.DB, userID uuid.UUID) bool {
-	var u models.User
-	if err := db.Select("preferred_locale").First(&u, "id = ?", userID).Error; err != nil {
-		return false
-	}
-	return len(u.PreferredLocale) >= 2 && (u.PreferredLocale == "en" || u.PreferredLocale[:2] == "en")
-}
-
 func hasTelegram(db *gorm.DB, userID uuid.UUID) bool {
 	var n int64
 	db.Model(&models.UserConnection{}).
@@ -48,11 +40,26 @@ func RunSchedulerTick(db *gorm.DB) {
 		if local.Hour() != s.PushHour || local.Minute() != s.PushMinute {
 			continue
 		}
-		if s.ScheduleType == "weekly" {
+		switch s.ScheduleType {
+		case "weekly":
 			if int(local.Weekday()) != s.Weekday {
 				continue
 			}
-		} else if s.ScheduleType != "" && s.ScheduleType != "daily" {
+		case "monthly":
+			dim := time.Date(local.Year(), local.Month()+1, 0, 0, 0, 0, 0, loc).Day()
+			target := s.DayOfMonth
+			if target < 1 {
+				target = 1
+			}
+			if target > dim {
+				target = dim
+			}
+			if local.Day() != target {
+				continue
+			}
+		case "daily", "":
+			// every day at push hour
+		default:
 			continue
 		}
 
@@ -75,7 +82,7 @@ func RunSchedulerTick(db *gorm.DB) {
 			continue
 		}
 
-		langEN := userPreferredEnglish(db, s.UserID)
+		langEN := ResolvePushLangEN(db, s.UserID, s.MessageLocale)
 		text := BuildDigestMessage(s, metrics, langEN, local)
 		if err := DefaultNotifier.SendTelegramToUser(s.UserID, text); err != nil {
 			log.Printf("push telegram user=%s: %v", s.UserID, err)
@@ -121,7 +128,7 @@ func SendTestDigest(db *gorm.DB, userID uuid.UUID, s *models.PushNotificationSet
 	if err != nil {
 		return err
 	}
-	langEN := userPreferredEnglish(db, userID)
+	langEN := ResolvePushLangEN(db, userID, s.MessageLocale)
 	text := BuildDigestMessage(s, metrics, langEN, now.In(loc))
 	return DefaultNotifier.SendTelegramToUser(userID, text)
 }
