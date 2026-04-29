@@ -13,9 +13,11 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
+
 	"sprouts-self/backend/internal/api"
 	"sprouts-self/backend/internal/models"
-	"gorm.io/gorm"
+	"sprouts-self/backend/internal/service"
 )
 
 type TelegramAdapter struct {
@@ -238,7 +240,7 @@ func (t *TelegramAdapter) handlePlainMessage(msg *tgbotapi.Message) {
 	}
 	category, matched := t.resolveCategory(ledgerID, result.CategoryHint, result.Type, preferEn)
 	if !matched {
-		t.sendReply(msg.Chat.ID, t.noCategoryReply(ledgerID, result.CategoryHint))
+		t.sendReply(msg.Chat.ID, t.noCategoryReply(ledgerID, result.CategoryHint, preferEn))
 		return
 	}
 
@@ -290,10 +292,19 @@ func (t *TelegramAdapter) handlePlainMessage(msg *tgbotapi.Message) {
 	if result.Type == "income" {
 		typeLabel = "收入"
 	}
-	lines := []string{
-		fmt.Sprintf("✅ 已记账：¥%.2f · %s · %s", result.Amount, typeLabel, category.Name),
+	loc := "zh"
+	if preferEn {
+		loc = "en"
 	}
-	if transaction.Note != "" && transaction.Note != category.Name {
+	catLabel := service.PickCategoryDisplayName(loc, category.NameZh, category.NameEn)
+	lines := []string{
+		fmt.Sprintf("✅ 已记账：¥%.2f · %s · %s", result.Amount, typeLabel, catLabel),
+	}
+	noteTrim := strings.TrimSpace(transaction.Note)
+	noteRedundant := noteTrim == catLabel ||
+		noteTrim == strings.TrimSpace(category.NameZh) ||
+		noteTrim == strings.TrimSpace(category.NameEn)
+	if noteTrim != "" && !noteRedundant {
 		lines = append(lines, "备注："+transaction.Note)
 	}
 	lines = append(lines, fmt.Sprintf("账本：%s · %s", ledger.Name, result.Date.Format("2006-01-02")))
@@ -494,10 +505,11 @@ func (t *TelegramAdapter) resolveCategory(ledgerID uuid.UUID, hint string, txTyp
 		return models.Category{}, false
 	}
 
-	// L1: exact name
+	// L1: exact name (either language side)
 	var cat models.Category
-	if err := t.db.Where("ledger_id = ? AND type = ? AND LOWER(name) = ?", ledgerID, txType, hint).
-		Order("sort_order ASC, LENGTH(name) ASC").
+	if err := t.db.Where("ledger_id = ? AND type = ? AND (LOWER(name_zh) = ? OR LOWER(name_en) = ?)",
+		ledgerID, txType, hint, hint).
+		Order("sort_order ASC").
 		First(&cat).Error; err == nil {
 		return cat, true
 	}
@@ -585,10 +597,15 @@ func (t *TelegramAdapter) resolveCategory(ledgerID uuid.UUID, hint string, txTyp
 		}
 	}
 
-	// L5: fuzzy name - ILIKE either direction
-	if err := t.db.Where("ledger_id = ? AND type = ? AND (name ILIKE ? OR ? ILIKE '%' || name || '%')",
-		ledgerID, txType, "%"+hint+"%", hint).
-		Order("sort_order ASC, LENGTH(name) ASC").
+	// L5: fuzzy name — substring match either direction (ILIKE, bilingual columns)
+	pLike := "%" + hint + "%"
+	if err := t.db.Where(
+		`ledger_id = ? AND type = ? AND (
+			name_zh ILIKE ? OR name_en ILIKE ?
+			OR ? ILIKE '%' || name_zh || '%' OR ? ILIKE '%' || name_en || '%'
+		)`,
+		ledgerID, txType, pLike, pLike, hint, hint).
+		Order("sort_order ASC").
 		First(&cat).Error; err == nil {
 		return cat, true
 	}
@@ -598,14 +615,18 @@ func (t *TelegramAdapter) resolveCategory(ledgerID uuid.UUID, hint string, txTyp
 
 // noCategoryReply produces a helpful error listing the available categories so
 // the user can pick an existing one without guessing.
-func (t *TelegramAdapter) noCategoryReply(ledgerID uuid.UUID, hint string) string {
+func (t *TelegramAdapter) noCategoryReply(ledgerID uuid.UUID, hint string, preferEn bool) string {
 	var cats []models.Category
 	t.db.Where("ledger_id = ?", ledgerID).
-		Order("sort_order ASC, name ASC").
+		Order("sort_order ASC, name_zh ASC").
 		Limit(12).Find(&cats)
+	loc := "zh"
+	if preferEn {
+		loc = "en"
+	}
 	names := make([]string, 0, len(cats))
 	for _, c := range cats {
-		names = append(names, c.Name)
+		names = append(names, service.PickCategoryDisplayName(loc, c.NameZh, c.NameEn))
 	}
 	out := fmt.Sprintf("没有找到分类「%s」。", hint)
 	if len(names) > 0 {

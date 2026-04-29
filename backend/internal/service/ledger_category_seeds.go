@@ -172,10 +172,11 @@ var ledgerCategorySeeds = []ledgerCatSeed{
 }
 
 // SeedDefaultLedgerCategories creates default categories and merged keywords for a ledger.
-func SeedDefaultLedgerCategories(tx *gorm.DB, ledgerID uuid.UUID, locale string) {
+func SeedDefaultLedgerCategories(tx *gorm.DB, ledgerID uuid.UUID) {
 	for _, s := range ledgerCategorySeeds {
 		cat := models.Category{
-			Name:      PickCategoryDisplayName(locale, s.nameZh, s.nameEn),
+			NameZh:    s.nameZh,
+			NameEn:    s.nameEn,
 			Icon:      s.icon,
 			Color:     s.color,
 			Type:      s.kind,

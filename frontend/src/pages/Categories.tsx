@@ -23,6 +23,8 @@ import TagsManager from '../components/TagsManager';
 interface Category {
   id: string;
   name: string;
+  name_zh?: string;
+  name_en?: string;
   icon: string;
   color: string;
   type: string;
@@ -34,14 +36,25 @@ interface Category {
 
 interface EditState {
   id?: string;
-  name: string;
+  name_zh: string;
+  name_en: string;
   icon: string;
   color: string;
   type: 'expense' | 'income';
 }
 
+function categoryPreviewLine(zh: string, en: string, unnamed: string): string {
+  const a = zh.trim();
+  const b = en.trim();
+  if (a && b && a !== b) return `${a} / ${b}`;
+  if (a) return a;
+  if (b) return b;
+  return unnamed;
+}
+
 const DEFAULT_EDIT: EditState = {
-  name: '',
+  name_zh: '',
+  name_en: '',
   icon: 'Coins',
   color: CATEGORY_COLORS[0],
   type: 'expense',
@@ -85,9 +98,12 @@ export default function Categories() {
   };
 
   const openEdit = (cat: Category) => {
+    const zh = cat.name_zh?.trim() ?? '';
+    const en = cat.name_en?.trim() ?? '';
     setEditor({
       id: cat.id,
-      name: cat.name,
+      name_zh: zh || cat.name,
+      name_en: en,
       icon: cat.icon || 'Coins',
       color: cat.color || CATEGORY_COLORS[0],
       type: (cat.type as any) || 'expense',
@@ -97,8 +113,10 @@ export default function Categories() {
 
   const save = async () => {
     if (!editor || !currentLedger) return;
-    if (!editor.name.trim()) {
-      setError(t('categories:nameRequired'));
+    const zh = editor.name_zh.trim();
+    const en = editor.name_en.trim();
+    if (!zh && !en) {
+      setError(t('categories:nameOneSideRequired'));
       return;
     }
     setSaving(true);
@@ -106,13 +124,15 @@ export default function Categories() {
     try {
       if (editor.id) {
         await api.put(`/categories/${editor.id}`, {
-          name: editor.name,
+          name_zh: zh,
+          name_en: en,
           icon: editor.icon,
           color: editor.color,
         });
       } else {
         await api.post('/categories', {
-          name: editor.name,
+          name_zh: zh,
+          name_en: en,
           icon: editor.icon,
           color: editor.color,
           type: editor.type,
@@ -147,7 +167,7 @@ export default function Categories() {
   const moveSort = async (cat: Category, direction: 'up' | 'down') => {
     const bucket = categories
       .filter((c) => c.type === cat.type)
-      .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
+      .sort((a, b) => a.sort_order - b.sort_order || a.id.localeCompare(b.id));
     const idx = bucket.findIndex((c) => c.id === cat.id);
     if (idx === -1) return;
     const neighborIdx = direction === 'up' ? idx - 1 : idx + 1;
@@ -226,40 +246,44 @@ export default function Categories() {
                       {cat.icon || 'Coins'} · {cat.color}
                     </p>
                   </div>
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                    <button
-                      onClick={() => moveSort(cat, 'up')}
-                      title={t('categories:moveUp')}
-                      disabled={idx === 0}
-                      className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-subtle)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)] disabled:opacity-30 disabled:cursor-not-allowed"
-                    >
-                      <ArrowUp size={13} />
-                    </button>
-                    <button
-                      onClick={() => moveSort(cat, 'down')}
-                      title={t('categories:moveDown')}
-                      disabled={idx === items.length - 1}
-                      className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-subtle)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)] disabled:opacity-30 disabled:cursor-not-allowed"
-                    >
-                      <ArrowDown size={13} />
-                    </button>
-                    <button
-                      onClick={() => openEdit(cat)}
-                      title={t('categories:edit')}
-                      className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-subtle)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)]"
-                    >
-                      <Pencil size={13} />
-                    </button>
-                    {!cat.is_system && (
+                  {!cat.is_system && (
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                       <button
+                        type="button"
+                        onClick={() => moveSort(cat, 'up')}
+                        title={t('categories:moveUp')}
+                        disabled={idx === 0}
+                        className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-subtle)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)] disabled:opacity-30 disabled:cursor-not-allowed"
+                      >
+                        <ArrowUp size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveSort(cat, 'down')}
+                        title={t('categories:moveDown')}
+                        disabled={idx === items.length - 1}
+                        className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-subtle)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)] disabled:opacity-30 disabled:cursor-not-allowed"
+                      >
+                        <ArrowDown size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openEdit(cat)}
+                        title={t('categories:edit')}
+                        className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-subtle)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)]"
+                      >
+                        <Pencil size={13} />
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => setDeleting(cat)}
                         title={t('categories:delete')}
                         className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-subtle)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)]"
                       >
                         <Trash2 size={13} />
                       </button>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
                 <div className="pl-[50px]">
                   <CategoryKeywordsEditor
@@ -319,21 +343,29 @@ export default function Categories() {
       >
         {editor && (
           <div className="space-y-4">
-            <div className="flex items-center gap-3 p-3 rounded-[var(--radius-md)] bg-[var(--color-surface-muted)]">
+            <div
+              className="flex items-center gap-3 p-3 rounded-[var(--radius-md)] bg-[var(--color-surface-muted)]"
+              aria-label={t('categories:preview')}
+            >
               <CategoryIcon name={editor.icon} color={editor.color} size={48} />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-[var(--color-text)] truncate">
-                  {editor.name || t('categories:unnamed')}
+                  {categoryPreviewLine(editor.name_zh, editor.name_en, t('categories:unnamed'))}
                 </p>
-                <p className="text-xs text-[var(--color-text-subtle)]">{t('categories:preview')}</p>
               </div>
             </div>
 
             <Input
-              label={t('categories:nameLabel')}
-              value={editor.name}
-              onChange={(e) => setEditor({ ...editor, name: e.target.value })}
-              placeholder={t('categories:namePlaceholder')}
+              label={t('categories:nameZhLabel')}
+              value={editor.name_zh}
+              onChange={(e) => setEditor({ ...editor, name_zh: e.target.value })}
+              placeholder={t('categories:nameZhPlaceholder')}
+            />
+            <Input
+              label={t('categories:nameEnLabel')}
+              value={editor.name_en}
+              onChange={(e) => setEditor({ ...editor, name_en: e.target.value })}
+              placeholder={t('categories:nameEnPlaceholder')}
             />
 
             <div>

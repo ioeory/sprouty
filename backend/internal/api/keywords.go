@@ -16,7 +16,7 @@ import (
 func FormatCategoryKeywordDisplay(k models.CategoryKeyword) string {
 	a := strings.TrimSpace(k.KeywordZh)
 	b := strings.TrimSpace(k.KeywordEn)
-	if a != "" && b != "" {
+	if a != "" && b != "" && a != b {
 		return a + " / " + b
 	}
 	if a != "" {
@@ -116,7 +116,7 @@ func CreateCategoryKeyword(c *gin.Context) {
 			c.JSON(http.StatusConflict, gin.H{
 				"error":                "keyword_zh already exists in this ledger",
 				"existing_category_id": dup.CategoryID,
-				"existing_category":    owner.Name,
+				"existing_category":    FormatCategoryNameLine(owner),
 			})
 			return
 		}
@@ -134,7 +134,7 @@ func CreateCategoryKeyword(c *gin.Context) {
 			c.JSON(http.StatusConflict, gin.H{
 				"error":                "keyword_en already exists in this ledger",
 				"existing_category_id": dup.CategoryID,
-				"existing_category":    owner.Name,
+				"existing_category":    FormatCategoryNameLine(owner),
 			})
 			return
 		}

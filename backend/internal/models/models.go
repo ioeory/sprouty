@@ -112,10 +112,11 @@ func (l *LedgerFamilyLink) BeforeCreate(tx *gorm.DB) error {
 	return nil
 }
 
-// Category
+// Category stores bilingual display names; API adds a locale-specific `name` field in JSON.
 type Category struct {
 	Base
-	Name      string    `gorm:"not null" json:"name"`
+	NameZh    string    `gorm:"size:128;not null;default:''" json:"name_zh"`
+	NameEn    string    `gorm:"size:128;not null;default:''" json:"name_en"`
 	Icon      string    `json:"icon"`
 	Color     string    `json:"color"`
 	Type      string    `json:"type"` // "expense", "income"

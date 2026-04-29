@@ -15,6 +15,59 @@ import (
 
 var DB *gorm.DB
 
+// prepareCategoryBilingualNames adds name_zh/name_en and copies legacy `name`
+// into both before that column is dropped.
+func prepareCategoryBilingualNames(db *gorm.DB) {
+	var tbl int64
+	db.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'categories'`).Scan(&tbl)
+	if tbl == 0 {
+		return
+	}
+	if err := db.Exec(`ALTER TABLE categories ADD COLUMN IF NOT EXISTS name_zh varchar(128) NOT NULL DEFAULT ''`).Error; err != nil {
+		log.Printf("prepareCategoryBilingualNames add name_zh: %v", err)
+	}
+	if err := db.Exec(`ALTER TABLE categories ADD COLUMN IF NOT EXISTS name_en varchar(128) NOT NULL DEFAULT ''`).Error; err != nil {
+		log.Printf("prepareCategoryBilingualNames add name_en: %v", err)
+	}
+	var hasLegacy bool
+	db.Raw(`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'categories' AND column_name = 'name')`).Scan(&hasLegacy)
+	if !hasLegacy {
+		return
+	}
+	if err := db.Exec(`UPDATE categories SET name_zh = BTRIM(name::text), name_en = BTRIM(name::text) WHERE name IS NOT NULL AND LENGTH(BTRIM(name::text)) > 0`).Error; err != nil {
+		log.Printf("prepareCategoryBilingualNames copy name -> zh/en: %v", err)
+	}
+}
+
+func dropLegacyCategoryNameColumn() {
+	var tbl int64
+	DB.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'categories'`).Scan(&tbl)
+	if tbl == 0 {
+		return
+	}
+	var hasLegacy bool
+	DB.Raw(`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'categories' AND column_name = 'name')`).Scan(&hasLegacy)
+	if !hasLegacy {
+		return
+	}
+	if err := DB.Migrator().DropColumn(&models.Category{}, "name"); err != nil {
+		log.Printf("drop legacy categories.name (migrator): %v", err)
+		_ = DB.Exec(`ALTER TABLE categories DROP COLUMN IF EXISTS name`).Error
+	}
+}
+
+// BackfillEnglishCategoryNames sets name_en from seed catalog where name_zh matches.
+func BackfillEnglishCategoryNames() {
+	for _, s := range ledgerCategorySeeds {
+		if err := DB.Model(&models.Category{}).
+			Where("deleted_at IS NULL AND type = ? AND sort_order = ? AND is_system = ? AND name_zh = ?",
+				s.kind, s.sort, s.system, s.nameZh).
+			Update("name_en", s.nameEn).Error; err != nil {
+			log.Printf("BackfillEnglishCategoryNames %s: %v", s.nameZh, err)
+		}
+	}
+}
+
 // prepareCategoryKeywordMigration adds keyword_zh / keyword_en on upgrades and
 // copies legacy `keyword` into both sides before the column is dropped.
 func prepareCategoryKeywordMigration(db *gorm.DB) {
@@ -106,9 +159,8 @@ func InitDB() {
 		log.Fatal("Failed to connect to database:", err)
 	}
 
-	// Legacy category_keywords used a single `keyword` column; add bilingual
-	// columns and backfill before AutoMigrate aligns the schema (GORM does not
-	// auto-drop columns, so we remove `keyword` explicitly after migrate).
+	// Legacy categories.name -> name_zh/name_en; legacy category_keywords.keyword -> zh/en.
+	prepareCategoryBilingualNames(db)
 	prepareCategoryKeywordMigration(db)
 
 	// Auto Migration
@@ -137,6 +189,7 @@ func InitDB() {
 	}
 
 	DB = db
+	dropLegacyCategoryNameColumn()
 	dropLegacyCategoryKeywordColumn()
 	ensurePasswordNullable()
 	ensureUUIDColumns()
@@ -145,6 +198,7 @@ func InitDB() {
 	ensureOIDCUserIndexes()
 	backfillCategoryDefaults()
 	backfillOptionalExpenseCategories()
+	BackfillEnglishCategoryNames()
 	ensureCommonLeafKeywordCai()
 	ensureSystemSettingsRow()
 	ensureRegistrationOpenWhenNoUsers()
@@ -348,7 +402,7 @@ func backfillCategoryDefaults() {
 		// 1. Priority: only touch rows still at the default priority so we don't
 		//    clobber a user's manual tweak. Match zh or en display names.
 		DB.Exec(
-			`UPDATE categories SET sort_order = ? WHERE is_system = true AND (name = ? OR name = ?) AND sort_order = 100`,
+			`UPDATE categories SET sort_order = ? WHERE is_system = true AND (name_zh = ? OR name_en = ?) AND sort_order = 100`,
 			s.sort, s.nameZh, s.nameEn,
 		)
 
@@ -363,7 +417,7 @@ func backfillCategoryDefaults() {
 		DB.Raw(
 			`SELECT c.id AS cat_id, c.ledger_id FROM categories c
 			 LEFT JOIN category_keywords k ON k.category_id = c.id AND k.deleted_at IS NULL
-			 WHERE c.is_system = true AND (c.name = ? OR c.name = ?) AND c.deleted_at IS NULL
+			 WHERE c.is_system = true AND (c.name_zh = ? OR c.name_en = ?) AND c.deleted_at IS NULL
 			 GROUP BY c.id, c.ledger_id
 			 HAVING COUNT(k.id) = 0`,
 			s.nameZh, s.nameEn,
@@ -397,13 +451,14 @@ func backfillOptionalExpenseCategories() {
 			}
 			var n int64
 			DB.Model(&models.Category{}).
-				Where("ledger_id = ? AND (name = ? OR name = ?) AND deleted_at IS NULL", lid, s.nameZh, s.nameEn).
+				Where("ledger_id = ? AND (name_zh = ? OR name_en = ?) AND deleted_at IS NULL", lid, s.nameZh, s.nameEn).
 				Count(&n)
 			if n > 0 {
 				continue
 			}
 			cat := models.Category{
-				Name:      s.nameZh,
+				NameZh:    s.nameZh,
+				NameEn:    s.nameEn,
 				Icon:      s.icon,
 				Color:     s.color,
 				Type:      "expense",

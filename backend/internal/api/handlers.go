@@ -630,6 +630,7 @@ func GetCategories(c *gin.Context) {
 	}
 
 	// Build response with keywords embedded
+	loc := Locale(c)
 	out := make([]gin.H, 0, len(categories))
 	for _, cat := range categories {
 		kw := kwByCat[cat.ID]
@@ -638,7 +639,9 @@ func GetCategories(c *gin.Context) {
 		}
 		out = append(out, gin.H{
 			"id":         cat.ID,
-			"name":       cat.Name,
+			"name_zh":    cat.NameZh,
+			"name_en":    cat.NameEn,
+			"name":       service.PickCategoryDisplayName(loc, cat.NameZh, cat.NameEn),
 			"icon":       cat.Icon,
 			"color":      cat.Color,
 			"type":       cat.Type,
@@ -910,17 +913,32 @@ func GetDashboardSummary(c *gin.Context) {
 		Color string  `json:"color"`
 	}
 
-	// By category
+	// By category (group by id so bilingual names don’t split one category)
 	catStats := []PieStat{}
 	{
+		type catPieRaw struct {
+			NameZh string  `gorm:"column:name_zh"`
+			NameEn string  `gorm:"column:name_en"`
+			Value  float64 `gorm:"column:value"`
+			Color  string  `gorm:"column:color"`
+		}
+		var raw []catPieRaw
 		q := service.DB.Model(&models.Transaction{}).
-			Select("categories.name as name, SUM(transactions.amount) as value, MAX(categories.color) as color").
+			Select("categories.name_zh as name_zh, categories.name_en as name_en, SUM(transactions.amount) as value, MAX(categories.color) as color").
 			Joins("JOIN categories ON transactions.category_id = categories.id").
 			Where("transactions.ledger_id IN ? AND transactions.type = 'expense'", ledgerIDs)
 		q = applyWindow(q, "transactions.date")
 		q = applyTagExclusion(q, "transactions")
-		if err := q.Group("categories.name").Order("value DESC").Scan(&catStats).Error; err != nil {
+		if err := q.Group("categories.id, categories.name_zh, categories.name_en").Order("value DESC").Scan(&raw).Error; err != nil {
 			log.Printf("Error fetching category stats: %v", err)
+		}
+		appLoc := Locale(c)
+		for _, row := range raw {
+			catStats = append(catStats, PieStat{
+				Name:  service.PickCategoryDisplayName(appLoc, row.NameZh, row.NameEn),
+				Value: row.Value,
+				Color: row.Color,
+			})
 		}
 	}
 

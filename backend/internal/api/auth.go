@@ -244,5 +244,5 @@ func bootstrapPersonalLedgerForUser(tx *gorm.DB, userID uuid.UUID, ledger *model
 // initDefaultCategoriesForLedger seeds core system categories plus optional
 // expense categories (IsSystem=false, user-deletable) with keyword hints.
 func initDefaultCategoriesForLedger(tx *gorm.DB, ledgerID uuid.UUID, locale string) {
-	service.SeedDefaultLedgerCategories(tx, ledgerID, locale)
+	service.SeedDefaultLedgerCategories(tx, ledgerID)
 }

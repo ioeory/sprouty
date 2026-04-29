@@ -372,15 +372,30 @@ func GetProjectSummary(c *gin.Context) {
 		Value float64 `json:"value"`
 		Color string  `json:"color"`
 	}
-	catStats := []CatStat{}
+	type catPieRaw struct {
+		NameZh string  `gorm:"column:name_zh"`
+		NameEn string  `gorm:"column:name_en"`
+		Value  float64 `gorm:"column:value"`
+		Color  string  `gorm:"column:color"`
+	}
+	var rawCats []catPieRaw
 	catQ := service.DB.Model(&models.Transaction{}).
-		Select("categories.name as name, SUM(transactions.amount) as value, categories.color as color").
+		Select("categories.name_zh as name_zh, categories.name_en as name_en, SUM(transactions.amount) as value, categories.color as color").
 		Joins("JOIN categories ON transactions.category_id = categories.id").
 		Where("transactions.project_id = ? AND transactions.type = 'expense'", p.ID)
 	if sum.Budget.Mode != "none" && sum.Budget.LedgerID != uuid.Nil {
 		catQ = catQ.Where("transactions.ledger_id = ?", sum.Budget.LedgerID)
 	}
-	catQ.Group("categories.name, categories.color").Scan(&catStats)
+	catQ.Group("categories.id, categories.name_zh, categories.name_en, categories.color").Scan(&rawCats)
+	appLoc := Locale(c)
+	catStats := make([]CatStat, 0, len(rawCats))
+	for _, row := range rawCats {
+		catStats = append(catStats, CatStat{
+			Name:  service.PickCategoryDisplayName(appLoc, row.NameZh, row.NameEn),
+			Value: row.Value,
+			Color: row.Color,
+		})
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"project":        sum,
