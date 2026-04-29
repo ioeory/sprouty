@@ -360,7 +360,7 @@ func (t *TelegramAdapter) resolveCategory(ledgerID uuid.UUID, hint string, txTyp
 	var kw models.CategoryKeyword
 	if err := t.db.Table("category_keywords").
 		Joins("JOIN categories ON categories.id = category_keywords.category_id").
-		Where("category_keywords.ledger_id = ? AND category_keywords.keyword = ? AND categories.type = ?", ledgerID, hint, txType).
+		Where("category_keywords.ledger_id = ? AND LOWER(category_keywords.keyword) = ? AND categories.type = ?", ledgerID, hint, txType).
 		Order("categories.sort_order ASC, LENGTH(category_keywords.keyword) ASC").
 		Select("category_keywords.*").
 		First(&kw).Error; err == nil {
@@ -378,7 +378,8 @@ func (t *TelegramAdapter) resolveCategory(ledgerID uuid.UUID, hint string, txTyp
 		Select("category_keywords.*").
 		Scan(&kws)
 	for _, k := range kws {
-		if k.Keyword != "" && strings.Contains(hint, k.Keyword) {
+		kwNorm := strings.ToLower(strings.TrimSpace(k.Keyword))
+		if kwNorm != "" && strings.Contains(hint, kwNorm) {
 			if err := t.db.First(&cat, "id = ?", k.CategoryID).Error; err == nil {
 				return cat, true
 			}
@@ -387,7 +388,8 @@ func (t *TelegramAdapter) resolveCategory(ledgerID uuid.UUID, hint string, txTyp
 
 	// L4: keyword contains hint (user typed "咖" and keyword is "咖啡")
 	for _, k := range kws {
-		if k.Keyword != "" && strings.Contains(k.Keyword, hint) {
+		kwNorm := strings.ToLower(strings.TrimSpace(k.Keyword))
+		if kwNorm != "" && strings.Contains(kwNorm, hint) {
 			if err := t.db.First(&cat, "id = ?", k.CategoryID).Error; err == nil {
 				return cat, true
 			}
