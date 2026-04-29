@@ -12,6 +12,19 @@ import (
 	"gorm.io/gorm"
 )
 
+// FormatCategoryKeywordDisplay builds a single-line label for chips and legacy `keyword` JSON.
+func FormatCategoryKeywordDisplay(k models.CategoryKeyword) string {
+	a := strings.TrimSpace(k.KeywordZh)
+	b := strings.TrimSpace(k.KeywordEn)
+	if a != "" && b != "" {
+		return a + " / " + b
+	}
+	if a != "" {
+		return a
+	}
+	return b
+}
+
 // -------- Category Keywords --------
 
 // ListCategoryKeywords returns the keyword list attached to a single category.
@@ -34,13 +47,24 @@ func ListCategoryKeywords(c *gin.Context) {
 		return
 	}
 	var kws []models.CategoryKeyword
-	service.DB.Where("category_id = ?", cat.ID).Order("keyword ASC").Find(&kws)
-	c.JSON(http.StatusOK, kws)
+	service.DB.Where("category_id = ?", cat.ID).
+		Order("keyword_zh ASC, keyword_en ASC").
+		Find(&kws)
+	out := make([]gin.H, 0, len(kws))
+	for _, k := range kws {
+		out = append(out, gin.H{
+			"id": k.ID, "category_id": k.CategoryID, "ledger_id": k.LedgerID,
+			"keyword_zh": k.KeywordZh, "keyword_en": k.KeywordEn,
+			"keyword":    FormatCategoryKeywordDisplay(k),
+			"created_at": k.CreatedAt, "updated_at": k.UpdatedAt,
+		})
+	}
+	c.JSON(http.StatusOK, out)
 }
 
-// CreateCategoryKeyword attaches one keyword to a category.
-// Keyword is normalized (lowercased, trimmed) and the (ledger_id, keyword)
-// uniqueness constraint is enforced at the DB layer.
+// CreateCategoryKeyword attaches one bilingual keyword row to a category.
+// Body: { "keyword_zh": "…", "keyword_en": "…" } (at least one required), or
+// legacy { "keyword": "…" } which sets both sides to the same normalized value.
 func CreateCategoryKeyword(c *gin.Context) {
 	userID, err := currentUserID(c)
 	if err != nil {
@@ -59,50 +83,97 @@ func CreateCategoryKeyword(c *gin.Context) {
 	}
 
 	var req struct {
-		Keyword string `json:"keyword" binding:"required"`
+		Keyword   *string `json:"keyword"`
+		KeywordZh *string `json:"keyword_zh"`
+		KeywordEn *string `json:"keyword_en"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	norm := normalizeKeyword(req.Keyword)
-	if norm == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "keyword cannot be empty"})
-		return
+	zh, en := "", ""
+	if req.KeywordZh != nil {
+		zh = normalizeKeyword(*req.KeywordZh)
 	}
-	if len(norm) > 64 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "keyword too long (max 64)"})
+	if req.KeywordEn != nil {
+		en = normalizeKeyword(*req.KeywordEn)
+	}
+	if zh == "" && en == "" && req.Keyword != nil && strings.TrimSpace(*req.Keyword) != "" {
+		v := normalizeKeyword(*req.Keyword)
+		zh, en = v, v
+	}
+	if ve := validateCategoryKeywordLengths(zh, en); ve != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": ve.Error()})
 		return
 	}
 
-	// Detect duplicate inside the same ledger ahead of the constraint so we can
-	// return a helpful 409 message pointing at the owning category.
-	var dup models.CategoryKeyword
-	err = service.DB.Where("ledger_id = ? AND keyword = ?", cat.LedgerID, norm).First(&dup).Error
-	if err == nil {
-		var owner models.Category
-		service.DB.First(&owner, "id = ?", dup.CategoryID)
-		c.JSON(http.StatusConflict, gin.H{
-			"error":                "keyword already exists in this ledger",
-			"existing_category_id": dup.CategoryID,
-			"existing_category":    owner.Name,
-		})
-		return
-	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	if zh != "" {
+		var dup models.CategoryKeyword
+		err = service.DB.Where("ledger_id = ? AND keyword_zh = ?", cat.LedgerID, zh).First(&dup).Error
+		if err == nil {
+			var owner models.Category
+			service.DB.First(&owner, "id = ?", dup.CategoryID)
+			c.JSON(http.StatusConflict, gin.H{
+				"error":                "keyword_zh already exists in this ledger",
+				"existing_category_id": dup.CategoryID,
+				"existing_category":    owner.Name,
+			})
+			return
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
+	if en != "" {
+		var dup models.CategoryKeyword
+		err = service.DB.Where("ledger_id = ? AND keyword_en = ?", cat.LedgerID, en).First(&dup).Error
+		if err == nil {
+			var owner models.Category
+			service.DB.First(&owner, "id = ?", dup.CategoryID)
+			c.JSON(http.StatusConflict, gin.H{
+				"error":                "keyword_en already exists in this ledger",
+				"existing_category_id": dup.CategoryID,
+				"existing_category":    owner.Name,
+			})
+			return
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 	}
 
 	kw := models.CategoryKeyword{
 		CategoryID: cat.ID,
 		LedgerID:   cat.LedgerID,
-		Keyword:    norm,
+		KeywordZh:  zh,
+		KeywordEn:  en,
 	}
 	if err := service.DB.Create(&kw).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusCreated, kw)
+	c.JSON(http.StatusCreated, gin.H{
+		"id":          kw.ID,
+		"category_id": kw.CategoryID,
+		"ledger_id":   kw.LedgerID,
+		"keyword_zh":  kw.KeywordZh,
+		"keyword_en":  kw.KeywordEn,
+		"keyword":     FormatCategoryKeywordDisplay(kw),
+		"created_at":  kw.CreatedAt,
+		"updated_at":  kw.UpdatedAt,
+	})
+}
+
+func validateCategoryKeywordLengths(zh, en string) error {
+	if len(zh) > 64 || len(en) > 64 {
+		return errors.New("keyword too long (max 64 per language)")
+	}
+	if zh == "" && en == "" {
+		return errors.New("keyword_zh or keyword_en (or legacy keyword) is required")
+	}
+	return nil
 }
 
 // DeleteCategoryKeyword removes a keyword by its own ID.

@@ -31,21 +31,42 @@ func PickCategoryDisplayName(locale, zh, en string) string {
 	return zh
 }
 
-func mergeDedupeKeywords(zh, en []string) []string {
-	seen := make(map[string]struct{}, len(zh)+len(en))
-	out := make([]string, 0, len(zh)+len(en))
-	for _, part := range [][]string{zh, en} {
-		for _, w := range part {
-			k := strings.ToLower(strings.TrimSpace(w))
-			if k == "" {
-				continue
-			}
-			if _, ok := seen[k]; ok {
-				continue
-			}
-			seen[k] = struct{}{}
-			out = append(out, k)
+// categoryKeywordSeedBatch builds DB rows: one side per token (zh-only and
+// en-only rows) so Telegram matching can prefer the user's language without
+// falsely pairing unrelated zh/en list positions.
+func categoryKeywordSeedBatch(categoryID, ledgerID uuid.UUID, keywordsZh, keywordsEn []string) []models.CategoryKeyword {
+	seen := make(map[string]struct{})
+	out := make([]models.CategoryKeyword, 0, len(keywordsZh)+len(keywordsEn))
+	push := func(zh, en string) {
+		if zh == "" && en == "" {
+			return
 		}
+		key := zh + "|" + en
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, models.CategoryKeyword{
+			Base:       models.Base{ID: uuid.New()},
+			CategoryID: categoryID,
+			LedgerID:   ledgerID,
+			KeywordZh:  zh,
+			KeywordEn:  en,
+		})
+	}
+	for _, w := range keywordsZh {
+		z := strings.ToLower(strings.TrimSpace(w))
+		if z == "" {
+			continue
+		}
+		push(z, "")
+	}
+	for _, w := range keywordsEn {
+		e := strings.ToLower(strings.TrimSpace(w))
+		if e == "" {
+			continue
+		}
+		push("", e)
 	}
 	return out
 }
@@ -165,12 +186,8 @@ func SeedDefaultLedgerCategories(tx *gorm.DB, ledgerID uuid.UUID, locale string)
 		if err := tx.Create(&cat).Error; err != nil {
 			continue
 		}
-		for _, kw := range mergeDedupeKeywords(s.keywordsZh, s.keywordsEn) {
-			tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&models.CategoryKeyword{
-				CategoryID: cat.ID,
-				LedgerID:   ledgerID,
-				Keyword:    kw,
-			})
+		for _, row := range categoryKeywordSeedBatch(cat.ID, ledgerID, s.keywordsZh, s.keywordsEn) {
+			tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row)
 		}
 	}
 }

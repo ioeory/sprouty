@@ -51,6 +51,9 @@
   "kwAddFailed": "添加失败",
   "kwDeleteFailed": "删除失败",
   "kwPlaceholder": "加关键字…",
+  "kwBilingualHint": "Telegram 等速记：中文、英文至少填一侧；填两侧则为中英对应。匹配顺序会跟随账号语言（设置里的界面语言）。",
+  "kwZhPlaceholder": "中文",
+  "kwEnPlaceholder": "English",
   "kwAddAria": "添加关键字",
   "kwDeleteAria": "删除关键字 {{keyword}}"
 }

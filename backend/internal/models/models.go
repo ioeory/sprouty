@@ -127,11 +127,14 @@ type Category struct {
 // CategoryKeyword powers quick-record fuzzy matching. Storing LedgerID here (in
 // addition to CategoryID) lets us JOIN against `transactions` without a 3-way
 // hop and enforce the "unique keyword per ledger" rule cheaply.
+// At least one of KeywordZh / KeywordEn must be non-empty. Values are stored
+// normalized (trim + lowercase) for case-insensitive matching.
 type CategoryKeyword struct {
 	Base
 	CategoryID uuid.UUID `gorm:"type:uuid;index;not null" json:"category_id"`
 	LedgerID   uuid.UUID `gorm:"type:uuid;index;not null" json:"ledger_id"`
-	Keyword    string    `gorm:"type:varchar(64);index;not null" json:"keyword"` // normalized to lower + trim
+	KeywordZh  string    `gorm:"type:varchar(64);default:''" json:"keyword_zh"`
+	KeywordEn  string    `gorm:"type:varchar(64);default:''" json:"keyword_en"`
 }
 
 // LedgerKeyword lets a user route quick-record messages to a specific ledger

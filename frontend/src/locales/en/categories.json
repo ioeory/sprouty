@@ -51,6 +51,9 @@
   "kwAddFailed": "Add failed",
   "kwDeleteFailed": "Delete failed",
   "kwPlaceholder": "Add keyword…",
+  "kwBilingualHint": "Quick entry (e.g. Telegram): fill Chinese and/or English; both sides define a bilingual pair. Matching prefers the side that matches your account UI language.",
+  "kwZhPlaceholder": "Chinese",
+  "kwEnPlaceholder": "English",
   "kwAddAria": "Add keyword",
   "kwDeleteAria": "Remove keyword {{keyword}}"
 }

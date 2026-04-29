@@ -15,6 +15,47 @@ import (
 
 var DB *gorm.DB
 
+// prepareCategoryKeywordMigration adds keyword_zh / keyword_en on upgrades and
+// copies legacy `keyword` into both sides before the column is dropped.
+func prepareCategoryKeywordMigration(db *gorm.DB) {
+	var tbl int64
+	db.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'category_keywords'`).Scan(&tbl)
+	if tbl == 0 {
+		return
+	}
+	if err := db.Exec(`ALTER TABLE category_keywords ADD COLUMN IF NOT EXISTS keyword_zh varchar(64) NOT NULL DEFAULT ''`).Error; err != nil {
+		log.Printf("prepareCategoryKeywordMigration add keyword_zh: %v", err)
+	}
+	if err := db.Exec(`ALTER TABLE category_keywords ADD COLUMN IF NOT EXISTS keyword_en varchar(64) NOT NULL DEFAULT ''`).Error; err != nil {
+		log.Printf("prepareCategoryKeywordMigration add keyword_en: %v", err)
+	}
+	var hasLegacy bool
+	db.Raw(`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'category_keywords' AND column_name = 'keyword')`).Scan(&hasLegacy)
+	if !hasLegacy {
+		return
+	}
+	if err := db.Exec(`UPDATE category_keywords SET keyword_zh = LOWER(TRIM(keyword::text)), keyword_en = LOWER(TRIM(keyword::text)) WHERE keyword IS NOT NULL AND LENGTH(BTRIM(keyword::text)) > 0`).Error; err != nil {
+		log.Printf("prepareCategoryKeywordMigration copy keyword -> zh/en: %v", err)
+	}
+}
+
+func dropLegacyCategoryKeywordColumn() {
+	var tbl int64
+	DB.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'category_keywords'`).Scan(&tbl)
+	if tbl == 0 {
+		return
+	}
+	var hasLegacy bool
+	DB.Raw(`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'category_keywords' AND column_name = 'keyword')`).Scan(&hasLegacy)
+	if !hasLegacy {
+		return
+	}
+	if err := DB.Migrator().DropColumn(&models.CategoryKeyword{}, "keyword"); err != nil {
+		log.Printf("drop legacy category_keywords.keyword (migrator): %v", err)
+		_ = DB.Exec(`ALTER TABLE category_keywords DROP COLUMN IF EXISTS keyword`).Error
+	}
+}
+
 func InitDB() {
 	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable TimeZone=Asia/Shanghai",
 		os.Getenv("DB_HOST"),
@@ -28,6 +69,11 @@ func InitDB() {
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
 	}
+
+	// Legacy category_keywords used a single `keyword` column; add bilingual
+	// columns and backfill before AutoMigrate aligns the schema (GORM does not
+	// auto-drop columns, so we remove `keyword` explicitly after migrate).
+	prepareCategoryKeywordMigration(db)
 
 	// Auto Migration
 	err = db.AutoMigrate(
@@ -55,6 +101,7 @@ func InitDB() {
 	}
 
 	DB = db
+	dropLegacyCategoryKeywordColumn()
 	ensurePasswordNullable()
 	ensureUUIDColumns()
 	backfillBudgetScope()
@@ -285,16 +332,10 @@ func backfillCategoryDefaults() {
 			s.nameZh, s.nameEn,
 		).Scan(&todo)
 
-		kwords := mergeDedupeKeywords(s.keywordsZh, s.keywordsEn)
 		for _, r := range todo {
-			batch := make([]models.CategoryKeyword, 0, len(kwords))
-			for _, kw := range kwords {
-				batch = append(batch, models.CategoryKeyword{
-					Base:       models.Base{ID: uuid.New()},
-					CategoryID: r.CatID,
-					LedgerID:   r.LedgerID,
-					Keyword:    kw,
-				})
+			batch := categoryKeywordSeedBatch(r.CatID, r.LedgerID, s.keywordsZh, s.keywordsEn)
+			if len(batch) == 0 {
+				continue
 			}
 			if err := DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&batch).Error; err != nil {
 				log.Printf("backfill keywords insert (%s/%s): %v", s.nameZh, s.nameEn, err)
@@ -337,16 +378,7 @@ func backfillOptionalExpenseCategories() {
 				log.Printf("backfillOptionalExpenseCategories create %s: %v", s.nameZh, err)
 				continue
 			}
-			kwords := mergeDedupeKeywords(s.keywordsZh, s.keywordsEn)
-			batch := make([]models.CategoryKeyword, 0, len(kwords))
-			for _, kw := range kwords {
-				batch = append(batch, models.CategoryKeyword{
-					Base:       models.Base{ID: uuid.New()},
-					CategoryID: cat.ID,
-					LedgerID:   lid,
-					Keyword:    kw,
-				})
-			}
+			batch := categoryKeywordSeedBatch(cat.ID, lid, s.keywordsZh, s.keywordsEn)
 			if len(batch) == 0 {
 				continue
 			}
@@ -358,17 +390,19 @@ func backfillOptionalExpenseCategories() {
 }
 
 // ensureKeywordIndexes enforces uniqueness at the DB level:
-//   - (ledger_id, keyword) for category_keywords  -> no duplicate category hint
-//     in the same ledger
-//   - (user_id,   keyword) for ledger_keywords    -> a user's ledger keyword is
-//     unique across their ledgers
+//   - (ledger_id, keyword_zh) / (ledger_id, keyword_en) for category_keywords
+//     (partial indexes, non-empty side only)
+//   - (user_id, keyword) for ledger_keywords
 //
 // Using partial indexes that skip soft-deleted rows so re-creating a keyword
 // after deletion still works.
 func ensureKeywordIndexes() {
 	statements := []string{
-		`CREATE UNIQUE INDEX IF NOT EXISTS uq_category_keywords_ledger_keyword
-		 ON category_keywords (ledger_id, keyword) WHERE deleted_at IS NULL`,
+		`DROP INDEX IF EXISTS uq_category_keywords_ledger_keyword`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS uq_category_keywords_ledger_zh
+		 ON category_keywords (ledger_id, keyword_zh) WHERE deleted_at IS NULL AND keyword_zh <> ''`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS uq_category_keywords_ledger_en
+		 ON category_keywords (ledger_id, keyword_en) WHERE deleted_at IS NULL AND keyword_en <> ''`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS uq_ledger_keywords_user_keyword
 		 ON ledger_keywords (user_id, keyword) WHERE deleted_at IS NULL`,
 		// Tag names are case-insensitive-unique within a ledger so "差旅" and

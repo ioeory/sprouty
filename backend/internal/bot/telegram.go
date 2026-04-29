@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -229,8 +230,13 @@ func (t *TelegramAdapter) handlePlainMessage(msg *tgbotapi.Message) {
 		ledgerID = lu.LedgerID
 	}
 
-	// 5) Resolve category within that ledger
-	category, matched := t.resolveCategory(ledgerID, result.CategoryHint, result.Type)
+	// 5) Resolve category within that ledger (keyword zh/en preference follows account locale)
+	preferEn := false
+	var acct models.User
+	if err := t.db.Select("preferred_locale").First(&acct, "id = ?", conn.UserID).Error; err == nil {
+		preferEn = strings.HasPrefix(strings.ToLower(strings.TrimSpace(acct.PreferredLocale)), "en")
+	}
+	category, matched := t.resolveCategory(ledgerID, result.CategoryHint, result.Type, preferEn)
 	if !matched {
 		t.sendReply(msg.Chat.ID, t.noCategoryReply(ledgerID, result.CategoryHint))
 		return
@@ -323,21 +329,129 @@ func (t *TelegramAdapter) loadLedgerKeywordMap(userID uuid.UUID) map[string]stri
 	return out
 }
 
+// catKeywordJoinedRow is used for locale-aware ordering (category.sort_order).
+type catKeywordJoinedRow struct {
+	models.CategoryKeyword
+	CatSort int `gorm:"column:cat_sort"`
+}
+
+func normKeywordSide(s string) string {
+	return strings.ToLower(strings.TrimSpace(s))
+}
+
+func kwExactLocaleRank(k models.CategoryKeyword, hint string, preferEn bool) int {
+	zh, en := normKeywordSide(k.KeywordZh), normKeywordSide(k.KeywordEn)
+	if hint != zh && hint != en {
+		return -1
+	}
+	if preferEn {
+		if hint == en {
+			return 2
+		}
+		return 1
+	}
+	if hint == zh {
+		return 2
+	}
+	return 1
+}
+
+func maxBilingualKeywordLen(k models.CategoryKeyword) int {
+	a, b := len(normKeywordSide(k.KeywordZh)), len(normKeywordSide(k.KeywordEn))
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func layer3PreferRank(k models.CategoryKeyword, hint string, preferEn bool) int {
+	zh, en := normKeywordSide(k.KeywordZh), normKeywordSide(k.KeywordEn)
+	hitZh := zh != "" && strings.Contains(hint, zh)
+	hitEn := en != "" && strings.Contains(hint, en)
+	if !hitZh && !hitEn {
+		return 0
+	}
+	if preferEn {
+		r := 0
+		if hitEn {
+			r += 2
+		}
+		if hitZh {
+			r += 1
+		}
+		return r
+	}
+	r := 0
+	if hitZh {
+		r += 2
+	}
+	if hitEn {
+		r += 1
+	}
+	return r
+}
+
+func containedSideMaxLen(zh, en, hint string) int {
+	m := 0
+	if zh != "" && strings.Contains(hint, zh) && len(zh) > m {
+		m = len(zh)
+	}
+	if en != "" && strings.Contains(hint, en) && len(en) > m {
+		m = len(en)
+	}
+	return m
+}
+
+func layer4PreferRank(k models.CategoryKeyword, hint string, preferEn bool) int {
+	zh, en := normKeywordSide(k.KeywordZh), normKeywordSide(k.KeywordEn)
+	hitZh := zh != "" && strings.Contains(zh, hint)
+	hitEn := en != "" && strings.Contains(en, hint)
+	if !hitZh && !hitEn {
+		return 0
+	}
+	if preferEn {
+		r := 0
+		if hitEn {
+			r += 2
+		}
+		if hitZh {
+			r += 1
+		}
+		return r
+	}
+	r := 0
+	if hitZh {
+		r += 2
+	}
+	if hitEn {
+		r += 1
+	}
+	return r
+}
+
+func prefixSideMaxLen(zh, en, hint string) int {
+	m := 0
+	if zh != "" && strings.Contains(zh, hint) && len(zh) > m {
+		m = len(zh)
+	}
+	if en != "" && strings.Contains(en, hint) && len(en) > m {
+		m = len(en)
+	}
+	return m
+}
+
 // resolveCategory implements the five-layer lookup described in the plan.
 // txType filters by category.type so "收入 8000" matches income categories only.
+// preferEn follows users.preferred_locale (en* → English keyword side first).
 //
 //	1. name = hint (exact)
-//	2. keyword = hint (exact)
-//	3. hint contains some keyword
-//	4. keyword contains hint
+//	2. keyword_zh or keyword_en = hint (exact), locale-aware tie-break
+//	3. hint contains some keyword (substring), locale-aware then longer match
+//	4. keyword side contains hint (prefix-ish), locale-aware
 //	5. name contains hint OR hint contains name
-//
-// Ties within a layer are broken by (sort_order ASC, LENGTH(name) ASC).
-func (t *TelegramAdapter) resolveCategory(ledgerID uuid.UUID, hint string, txType string) (models.Category, bool) {
+func (t *TelegramAdapter) resolveCategory(ledgerID uuid.UUID, hint string, txType string, preferEn bool) (models.Category, bool) {
 	hint = strings.ToLower(strings.TrimSpace(hint))
 
-	// Edge case: no hint. Fall back to the lowest-sort-order category of the
-	// requested type so "收入 5000" still works.
 	if hint == "" {
 		var cat models.Category
 		if err := t.db.Where("ledger_id = ? AND type = ?", ledgerID, txType).
@@ -356,43 +470,94 @@ func (t *TelegramAdapter) resolveCategory(ledgerID uuid.UUID, hint string, txTyp
 		return cat, true
 	}
 
-	// L2: exact keyword
-	var kw models.CategoryKeyword
-	if err := t.db.Table("category_keywords").
+	// L2: exact keyword (zh or en column)
+	var l2 []catKeywordJoinedRow
+	t.db.Table("category_keywords").
+		Select("category_keywords.*, categories.sort_order AS cat_sort").
 		Joins("JOIN categories ON categories.id = category_keywords.category_id").
-		Where("category_keywords.ledger_id = ? AND LOWER(category_keywords.keyword) = ? AND categories.type = ?", ledgerID, hint, txType).
-		Order("categories.sort_order ASC, LENGTH(category_keywords.keyword) ASC").
-		Select("category_keywords.*").
-		First(&kw).Error; err == nil {
-		if err := t.db.First(&cat, "id = ?", kw.CategoryID).Error; err == nil {
+		Where(`category_keywords.ledger_id = ? AND categories.type = ? AND (
+			(category_keywords.keyword_zh <> '' AND LOWER(category_keywords.keyword_zh) = ?) OR
+			(category_keywords.keyword_en <> '' AND LOWER(category_keywords.keyword_en) = ?)
+		)`, ledgerID, txType, hint, hint).
+		Scan(&l2)
+	if len(l2) > 0 {
+		sort.Slice(l2, func(i, j int) bool {
+			ri := kwExactLocaleRank(l2[i].CategoryKeyword, hint, preferEn)
+			rj := kwExactLocaleRank(l2[j].CategoryKeyword, hint, preferEn)
+			if ri != rj {
+				return ri > rj
+			}
+			if l2[i].CatSort != l2[j].CatSort {
+				return l2[i].CatSort < l2[j].CatSort
+			}
+			return maxBilingualKeywordLen(l2[i].CategoryKeyword) < maxBilingualKeywordLen(l2[j].CategoryKeyword)
+		})
+		if err := t.db.First(&cat, "id = ?", l2[0].CategoryID).Error; err == nil {
 			return cat, true
 		}
 	}
 
-	// L3: hint contains some keyword (e.g. "买了件衣服" contains "衣服")
-	var kws []models.CategoryKeyword
+	// L3 / L4: load all keyword rows for this ledger + type (with category sort)
+	var all []catKeywordJoinedRow
 	t.db.Table("category_keywords").
+		Select("category_keywords.*, categories.sort_order AS cat_sort").
 		Joins("JOIN categories ON categories.id = category_keywords.category_id").
 		Where("category_keywords.ledger_id = ? AND categories.type = ?", ledgerID, txType).
-		Order("categories.sort_order ASC, LENGTH(category_keywords.keyword) DESC"). // longer keyword first = more specific
-		Select("category_keywords.*").
-		Scan(&kws)
-	for _, k := range kws {
-		kwNorm := strings.ToLower(strings.TrimSpace(k.Keyword))
-		if kwNorm != "" && strings.Contains(hint, kwNorm) {
-			if err := t.db.First(&cat, "id = ?", k.CategoryID).Error; err == nil {
-				return cat, true
+		Scan(&all)
+
+	// L3: hint contains keyword side
+	var l3 []catKeywordJoinedRow
+	for _, r := range all {
+		zh, en := normKeywordSide(r.KeywordZh), normKeywordSide(r.KeywordEn)
+		if (zh != "" && strings.Contains(hint, zh)) || (en != "" && strings.Contains(hint, en)) {
+			l3 = append(l3, r)
+		}
+	}
+	if len(l3) > 0 {
+		sort.Slice(l3, func(i, j int) bool {
+			a, b := l3[i], l3[j]
+			if a.CatSort != b.CatSort {
+				return a.CatSort < b.CatSort
 			}
+			ri := layer3PreferRank(a.CategoryKeyword, hint, preferEn)
+			rj := layer3PreferRank(b.CategoryKeyword, hint, preferEn)
+			if ri != rj {
+				return ri > rj
+			}
+			zi, ei := normKeywordSide(a.KeywordZh), normKeywordSide(a.KeywordEn)
+			zj, ej := normKeywordSide(b.KeywordZh), normKeywordSide(b.KeywordEn)
+			return containedSideMaxLen(zi, ei, hint) > containedSideMaxLen(zj, ej, hint)
+		})
+		if err := t.db.First(&cat, "id = ?", l3[0].CategoryID).Error; err == nil {
+			return cat, true
 		}
 	}
 
-	// L4: keyword contains hint (user typed "咖" and keyword is "咖啡")
-	for _, k := range kws {
-		kwNorm := strings.ToLower(strings.TrimSpace(k.Keyword))
-		if kwNorm != "" && strings.Contains(kwNorm, hint) {
-			if err := t.db.First(&cat, "id = ?", k.CategoryID).Error; err == nil {
-				return cat, true
+	// L4: keyword side contains hint
+	var l4 []catKeywordJoinedRow
+	for _, r := range all {
+		zh, en := normKeywordSide(r.KeywordZh), normKeywordSide(r.KeywordEn)
+		if (zh != "" && strings.Contains(zh, hint)) || (en != "" && strings.Contains(en, hint)) {
+			l4 = append(l4, r)
+		}
+	}
+	if len(l4) > 0 {
+		sort.Slice(l4, func(i, j int) bool {
+			a, b := l4[i], l4[j]
+			if a.CatSort != b.CatSort {
+				return a.CatSort < b.CatSort
 			}
+			ri := layer4PreferRank(a.CategoryKeyword, hint, preferEn)
+			rj := layer4PreferRank(b.CategoryKeyword, hint, preferEn)
+			if ri != rj {
+				return ri > rj
+			}
+			zi, ei := normKeywordSide(a.KeywordZh), normKeywordSide(a.KeywordEn)
+			zj, ej := normKeywordSide(b.KeywordZh), normKeywordSide(b.KeywordEn)
+			return prefixSideMaxLen(zi, ei, hint) > prefixSideMaxLen(zj, ej, hint)
+		})
+		if err := t.db.First(&cat, "id = ?", l4[0].CategoryID).Error; err == nil {
+			return cat, true
 		}
 	}
 

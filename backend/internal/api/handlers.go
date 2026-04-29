@@ -616,10 +616,17 @@ func GetCategories(c *gin.Context) {
 	// Load keywords in one query so we don't N+1
 	lid, _ := uuid.Parse(ledgerID)
 	var kws []models.CategoryKeyword
-	service.DB.Where("ledger_id = ?", lid).Order("keyword ASC").Find(&kws)
+	service.DB.Where("ledger_id = ?", lid).
+		Order("keyword_zh ASC, keyword_en ASC").
+		Find(&kws)
 	kwByCat := map[uuid.UUID][]gin.H{}
 	for _, k := range kws {
-		kwByCat[k.CategoryID] = append(kwByCat[k.CategoryID], gin.H{"id": k.ID, "keyword": k.Keyword})
+		kwByCat[k.CategoryID] = append(kwByCat[k.CategoryID], gin.H{
+			"id":         k.ID,
+			"keyword_zh": k.KeywordZh,
+			"keyword_en": k.KeywordEn,
+			"keyword":    FormatCategoryKeywordDisplay(k),
+		})
 	}
 
 	// Build response with keywords embedded
