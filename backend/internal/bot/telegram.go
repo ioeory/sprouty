@@ -329,10 +329,42 @@ func (t *TelegramAdapter) loadLedgerKeywordMap(userID uuid.UUID) map[string]stri
 	return out
 }
 
-// catKeywordJoinedRow is used for locale-aware ordering (category.sort_order).
-type catKeywordJoinedRow struct {
-	models.CategoryKeyword
-	CatSort int `gorm:"column:cat_sort"`
+// catKwWithSort is an in-memory row for resolution (avoids GORM Scan+JOIN quirks
+// with embedded models that could yield empty keyword_zh/en).
+type catKwWithSort struct {
+	Kw      models.CategoryKeyword
+	CatSort int
+}
+
+func (t *TelegramAdapter) loadCategoryKeywordsForLedgerType(ledgerID uuid.UUID, txType string) []catKwWithSort {
+	var kws []models.CategoryKeyword
+	if err := t.db.Where("ledger_id = ?", ledgerID).Find(&kws).Error; err != nil {
+		log.Printf("resolveCategory: list category_keywords: %v", err)
+		return nil
+	}
+	if len(kws) == 0 {
+		return nil
+	}
+	var cats []models.Category
+	if err := t.db.Select("id", "sort_order", "type").Where("ledger_id = ?", ledgerID).Find(&cats).Error; err != nil {
+		log.Printf("resolveCategory: list categories: %v", err)
+		return nil
+	}
+	sortOf := make(map[uuid.UUID]int, len(cats))
+	typeOf := make(map[uuid.UUID]string, len(cats))
+	for _, c := range cats {
+		sortOf[c.ID] = c.SortOrder
+		typeOf[c.ID] = c.Type
+	}
+	out := make([]catKwWithSort, 0, len(kws))
+	for i := range kws {
+		k := kws[i]
+		if typeOf[k.CategoryID] != txType {
+			continue
+		}
+		out = append(out, catKwWithSort{Kw: k, CatSort: sortOf[k.CategoryID]})
+	}
+	return out
 }
 
 func normKeywordSide(s string) string {
@@ -470,45 +502,37 @@ func (t *TelegramAdapter) resolveCategory(ledgerID uuid.UUID, hint string, txTyp
 		return cat, true
 	}
 
+	all := t.loadCategoryKeywordsForLedgerType(ledgerID, txType)
+
 	// L2: exact keyword (zh or en column)
-	var l2 []catKeywordJoinedRow
-	t.db.Table("category_keywords").
-		Select("category_keywords.*, categories.sort_order AS cat_sort").
-		Joins("JOIN categories ON categories.id = category_keywords.category_id").
-		Where(`category_keywords.ledger_id = ? AND categories.type = ? AND (
-			(category_keywords.keyword_zh <> '' AND LOWER(category_keywords.keyword_zh) = ?) OR
-			(category_keywords.keyword_en <> '' AND LOWER(category_keywords.keyword_en) = ?)
-		)`, ledgerID, txType, hint, hint).
-		Scan(&l2)
+	var l2 []catKwWithSort
+	for _, r := range all {
+		zh, en := normKeywordSide(r.Kw.KeywordZh), normKeywordSide(r.Kw.KeywordEn)
+		if (zh != "" && hint == zh) || (en != "" && hint == en) {
+			l2 = append(l2, r)
+		}
+	}
 	if len(l2) > 0 {
 		sort.Slice(l2, func(i, j int) bool {
-			ri := kwExactLocaleRank(l2[i].CategoryKeyword, hint, preferEn)
-			rj := kwExactLocaleRank(l2[j].CategoryKeyword, hint, preferEn)
+			ri := kwExactLocaleRank(l2[i].Kw, hint, preferEn)
+			rj := kwExactLocaleRank(l2[j].Kw, hint, preferEn)
 			if ri != rj {
 				return ri > rj
 			}
 			if l2[i].CatSort != l2[j].CatSort {
 				return l2[i].CatSort < l2[j].CatSort
 			}
-			return maxBilingualKeywordLen(l2[i].CategoryKeyword) < maxBilingualKeywordLen(l2[j].CategoryKeyword)
+			return maxBilingualKeywordLen(l2[i].Kw) < maxBilingualKeywordLen(l2[j].Kw)
 		})
-		if err := t.db.First(&cat, "id = ?", l2[0].CategoryID).Error; err == nil {
+		if err := t.db.First(&cat, "id = ?", l2[0].Kw.CategoryID).Error; err == nil {
 			return cat, true
 		}
 	}
 
-	// L3 / L4: load all keyword rows for this ledger + type (with category sort)
-	var all []catKeywordJoinedRow
-	t.db.Table("category_keywords").
-		Select("category_keywords.*, categories.sort_order AS cat_sort").
-		Joins("JOIN categories ON categories.id = category_keywords.category_id").
-		Where("category_keywords.ledger_id = ? AND categories.type = ?", ledgerID, txType).
-		Scan(&all)
-
-	// L3: hint contains keyword side
-	var l3 []catKeywordJoinedRow
+	// L3: hint contains whole keyword side (e.g. "买了蔬菜" contains "蔬菜")
+	var l3 []catKwWithSort
 	for _, r := range all {
-		zh, en := normKeywordSide(r.KeywordZh), normKeywordSide(r.KeywordEn)
+		zh, en := normKeywordSide(r.Kw.KeywordZh), normKeywordSide(r.Kw.KeywordEn)
 		if (zh != "" && strings.Contains(hint, zh)) || (en != "" && strings.Contains(hint, en)) {
 			l3 = append(l3, r)
 		}
@@ -519,24 +543,24 @@ func (t *TelegramAdapter) resolveCategory(ledgerID uuid.UUID, hint string, txTyp
 			if a.CatSort != b.CatSort {
 				return a.CatSort < b.CatSort
 			}
-			ri := layer3PreferRank(a.CategoryKeyword, hint, preferEn)
-			rj := layer3PreferRank(b.CategoryKeyword, hint, preferEn)
+			ri := layer3PreferRank(a.Kw, hint, preferEn)
+			rj := layer3PreferRank(b.Kw, hint, preferEn)
 			if ri != rj {
 				return ri > rj
 			}
-			zi, ei := normKeywordSide(a.KeywordZh), normKeywordSide(a.KeywordEn)
-			zj, ej := normKeywordSide(b.KeywordZh), normKeywordSide(b.KeywordEn)
+			zi, ei := normKeywordSide(a.Kw.KeywordZh), normKeywordSide(a.Kw.KeywordEn)
+			zj, ej := normKeywordSide(b.Kw.KeywordZh), normKeywordSide(b.Kw.KeywordEn)
 			return containedSideMaxLen(zi, ei, hint) > containedSideMaxLen(zj, ej, hint)
 		})
-		if err := t.db.First(&cat, "id = ?", l3[0].CategoryID).Error; err == nil {
+		if err := t.db.First(&cat, "id = ?", l3[0].Kw.CategoryID).Error; err == nil {
 			return cat, true
 		}
 	}
 
-	// L4: keyword side contains hint
-	var l4 []catKeywordJoinedRow
+	// L4: keyword side contains hint (e.g. hint "菜" inside keyword "蔬菜")
+	var l4 []catKwWithSort
 	for _, r := range all {
-		zh, en := normKeywordSide(r.KeywordZh), normKeywordSide(r.KeywordEn)
+		zh, en := normKeywordSide(r.Kw.KeywordZh), normKeywordSide(r.Kw.KeywordEn)
 		if (zh != "" && strings.Contains(zh, hint)) || (en != "" && strings.Contains(en, hint)) {
 			l4 = append(l4, r)
 		}
@@ -547,16 +571,16 @@ func (t *TelegramAdapter) resolveCategory(ledgerID uuid.UUID, hint string, txTyp
 			if a.CatSort != b.CatSort {
 				return a.CatSort < b.CatSort
 			}
-			ri := layer4PreferRank(a.CategoryKeyword, hint, preferEn)
-			rj := layer4PreferRank(b.CategoryKeyword, hint, preferEn)
+			ri := layer4PreferRank(a.Kw, hint, preferEn)
+			rj := layer4PreferRank(b.Kw, hint, preferEn)
 			if ri != rj {
 				return ri > rj
 			}
-			zi, ei := normKeywordSide(a.KeywordZh), normKeywordSide(a.KeywordEn)
-			zj, ej := normKeywordSide(b.KeywordZh), normKeywordSide(b.KeywordEn)
+			zi, ei := normKeywordSide(a.Kw.KeywordZh), normKeywordSide(a.Kw.KeywordEn)
+			zj, ej := normKeywordSide(b.Kw.KeywordZh), normKeywordSide(b.Kw.KeywordEn)
 			return prefixSideMaxLen(zi, ei, hint) > prefixSideMaxLen(zj, ej, hint)
 		})
-		if err := t.db.First(&cat, "id = ?", l4[0].CategoryID).Error; err == nil {
+		if err := t.db.First(&cat, "id = ?", l4[0].Kw.CategoryID).Error; err == nil {
 			return cat, true
 		}
 	}

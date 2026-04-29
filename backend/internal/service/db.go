@@ -39,6 +39,42 @@ func prepareCategoryKeywordMigration(db *gorm.DB) {
 	}
 }
 
+// ensureCommonLeafKeywordCai inserts keyword_zh「菜」on the default dining category
+// (system expense, sort_order=10) when the ledger has no such keyword yet.
+// Telegram users often type a single 菜; L4 resolves it against longer keywords like 蔬菜.
+func ensureCommonLeafKeywordCai() {
+	const leaf = "菜"
+	var ledgerIDs []uuid.UUID
+	if err := DB.Model(&models.Ledger{}).Pluck("id", &ledgerIDs).Error; err != nil {
+		log.Printf("ensureCommonLeafKeywordCai: %v", err)
+		return
+	}
+	for _, lid := range ledgerIDs {
+		var n int64
+		DB.Model(&models.CategoryKeyword{}).
+			Where("ledger_id = ? AND deleted_at IS NULL AND keyword_zh = ?", lid, leaf).
+			Count(&n)
+		if n > 0 {
+			continue
+		}
+		var cat models.Category
+		err := DB.Where("ledger_id = ? AND type = ? AND is_system = ? AND sort_order = ? AND deleted_at IS NULL",
+			lid, "expense", true, 10).First(&cat).Error
+		if err != nil {
+			continue
+		}
+		kw := models.CategoryKeyword{
+			CategoryID: cat.ID,
+			LedgerID:   lid,
+			KeywordZh:  leaf,
+			KeywordEn:  "",
+		}
+		if err := DB.Create(&kw).Error; err != nil {
+			log.Printf("ensureCommonLeafKeywordCai ledger %s: %v", lid, err)
+		}
+	}
+}
+
 func dropLegacyCategoryKeywordColumn() {
 	var tbl int64
 	DB.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'category_keywords'`).Scan(&tbl)
@@ -109,6 +145,7 @@ func InitDB() {
 	ensureOIDCUserIndexes()
 	backfillCategoryDefaults()
 	backfillOptionalExpenseCategories()
+	ensureCommonLeafKeywordCai()
 	ensureSystemSettingsRow()
 	ensureRegistrationOpenWhenNoUsers()
 	backfillSingleUserAdmin()
