@@ -14,6 +14,8 @@ import (
 	"sprouts-self/backend/internal/service"
 )
 
+var errPushLedgerViewerReadOnly = errors.New("ledger viewer read-only")
+
 type pushSubscriptionBody struct {
 	Name                   string    `json:"name"`
 	MessageLocale          string    `json:"message_locale"`
@@ -59,6 +61,9 @@ func validatePushSubscription(userID uuid.UUID, req *pushSubscriptionBody) error
 	}
 	if !userCanAccessLedger(userID, req.LedgerID) {
 		return errors.New("no access to this ledger")
+	}
+	if !userCanWriteLedger(userID, req.LedgerID) {
+		return errPushLedgerViewerReadOnly
 	}
 	ml := strings.TrimSpace(strings.ToLower(req.MessageLocale))
 	if ml == "" {
@@ -150,6 +155,10 @@ func CreatePushSubscription(c *gin.Context) {
 		return
 	}
 	if err := validatePushSubscription(userID, &req); err != nil {
+		if errors.Is(err, errPushLedgerViewerReadOnly) {
+			c.JSON(http.StatusForbidden, ErrorJSON(c, "ledger.viewer_read_only"))
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -179,10 +188,6 @@ func UpdatePushSubscription(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := validatePushSubscription(userID, &req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
 	var row models.PushNotificationSetting
 	if err := service.DB.Where("id = ? AND user_id = ?", id, userID).First(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -190,6 +195,17 @@ func UpdatePushSubscription(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "database error"})
+		return
+	}
+	if respondLedgerViewerForbidden(c, userID, row.LedgerID) {
+		return
+	}
+	if err := validatePushSubscription(userID, &req); err != nil {
+		if errors.Is(err, errPushLedgerViewerReadOnly) {
+			c.JSON(http.StatusForbidden, ErrorJSON(c, "ledger.viewer_read_only"))
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	applyPushBody(&row, &req)
@@ -215,13 +231,20 @@ func DeletePushSubscription(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
-	res := service.DB.Where("id = ? AND user_id = ?", id, userID).Delete(&models.PushNotificationSetting{})
-	if res.Error != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "delete failed"})
+	var row models.PushNotificationSetting
+	if err := service.DB.Where("id = ? AND user_id = ?", id, userID).First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database error"})
 		return
 	}
-	if res.RowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+	if respondLedgerViewerForbidden(c, userID, row.LedgerID) {
+		return
+	}
+	if err := service.DB.Delete(&row).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "delete failed"})
 		return
 	}
 	c.Status(http.StatusNoContent)
@@ -246,6 +269,9 @@ func PostPushSubscriptionTest(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "database error"})
+		return
+	}
+	if respondLedgerViewerForbidden(c, userID, row.LedgerID) {
 		return
 	}
 	if err := push.SendTestDigest(service.DB, userID, &row); err != nil {

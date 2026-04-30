@@ -48,6 +48,9 @@ func CreateLedgerInvite(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "no access to this ledger"})
 		return
 	}
+	if respondLedgerViewerForbidden(c, userID, ledgerID) {
+		return
+	}
 
 	invite := models.LedgerInvite{
 		LedgerID:  ledgerID,

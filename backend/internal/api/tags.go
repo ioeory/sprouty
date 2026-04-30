@@ -59,6 +59,9 @@ func CreateTag(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "no access"})
 		return
 	}
+	if respondLedgerViewerForbidden(c, userID, req.LedgerID) {
+		return
+	}
 
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
@@ -109,6 +112,9 @@ func UpdateTag(c *gin.Context) {
 	}
 	if !userCanAccessLedger(userID, tag.LedgerID) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "no access"})
+		return
+	}
+	if respondLedgerViewerForbidden(c, userID, tag.LedgerID) {
 		return
 	}
 
@@ -170,6 +176,9 @@ func DeleteTag(c *gin.Context) {
 	}
 	if !userCanAccessLedger(userID, tag.LedgerID) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "no access"})
+		return
+	}
+	if respondLedgerViewerForbidden(c, userID, tag.LedgerID) {
 		return
 	}
 	// Unlink from every transaction first so we don't leave dangling junction rows.

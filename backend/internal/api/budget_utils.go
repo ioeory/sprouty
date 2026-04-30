@@ -32,6 +32,9 @@ func DeleteBudgetMonthOverride(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "no access"})
 		return
 	}
+	if respondLedgerViewerForbidden(c, userID, lid) {
+		return
+	}
 	res := service.DB.Where("ledger_id = ? AND scope = ? AND year_month = ?", lid, "ledger_total", ym).
 		Delete(&models.Budget{})
 	if res.Error != nil {

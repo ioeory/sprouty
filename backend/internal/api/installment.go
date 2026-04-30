@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -13,6 +14,9 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
+
+// ErrReadOnlyLedgerMember is returned by ExecInstallment when the user is a viewer on the ledger.
+var ErrReadOnlyLedgerMember = errors.New("read_only_member")
 
 // splitEqualInstallmentCents splits total into n parts in currency cents (remainder to earliest months).
 func splitEqualInstallmentCents(total float64, n int) []float64 {
@@ -71,6 +75,9 @@ func ExecInstallment(db *gorm.DB, userID uuid.UUID, p InstallmentCreateParams) (
 	}
 	if !userCanAccessLedger(userID, p.LedgerID) {
 		return uuid.Nil, nil, fmt.Errorf("forbidden")
+	}
+	if !service.UserCanWriteLedger(db, userID, p.LedgerID) {
+		return uuid.Nil, nil, ErrReadOnlyLedgerMember
 	}
 	var cat models.Category
 	if err := db.Where("id = ? AND ledger_id = ?", p.CategoryID, p.LedgerID).First(&cat).Error; err != nil {
@@ -202,6 +209,10 @@ func CreateInstallment(c *gin.Context) {
 		if execErr.Error() == "forbidden" {
 			st = http.StatusForbidden
 		}
+		if errors.Is(execErr, ErrReadOnlyLedgerMember) {
+			c.JSON(http.StatusForbidden, ErrorJSON(c, "ledger.viewer_read_only"))
+			return
+		}
 		c.JSON(st, gin.H{"error": execErr.Error()})
 		return
 	}
@@ -242,6 +253,9 @@ func DeleteInstallmentGroup(c *gin.Context) {
 	}
 	if !userCanAccessLedger(userUUID, lid) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "no access"})
+		return
+	}
+	if respondLedgerViewerForbidden(c, userUUID, lid) {
 		return
 	}
 	if err := service.DB.Transaction(func(tx *gorm.DB) error {

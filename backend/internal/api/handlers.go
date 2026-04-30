@@ -301,6 +301,9 @@ func CreateTransaction(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 		return
 	}
+	if respondLedgerViewerForbidden(c, userUUID, req.LedgerID) {
+		return
+	}
 
 	// Ensure the picked category actually belongs to this ledger
 	var cat models.Category
@@ -556,6 +559,9 @@ func UpdateTransaction(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "无权限修改该流水：您不是该笔记录所属账本的成员（例如家庭视图下合并展示了他人的关联子账流水）"})
 		return
 	}
+	if respondLedgerViewerForbidden(c, userID, tx.LedgerID) {
+		return
+	}
 
 	var req struct {
 		Amount       *float64     `json:"amount"`
@@ -647,6 +653,9 @@ func DeleteTransaction(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "无法删除该流水：您不是该笔记录所属账本的成员（例如他人关联到家庭账的个人子账中的记录）"})
 		return
 	}
+	if respondLedgerViewerForbidden(c, userID, tx.LedgerID) {
+		return
+	}
 
 	// Remove tag junction rows first so we don't leave dangling links.
 	service.DB.Where("transaction_id = ?", tx.ID).Delete(&models.TransactionTag{})
@@ -664,6 +673,20 @@ func userCanAccessLedger(userID uuid.UUID, ledgerID uuid.UUID) bool {
 		Where("user_id = ? AND ledger_id = ?", userID, ledgerID).
 		Count(&count)
 	return count > 0
+}
+
+// userCanWriteLedger is false for members with member_role viewer (owners always write).
+func userCanWriteLedger(userID uuid.UUID, ledgerID uuid.UUID) bool {
+	return service.UserCanWriteLedger(service.DB, userID, ledgerID)
+}
+
+// respondLedgerViewerForbidden sends 403 when the user is a read-only member; returns true if blocked.
+func respondLedgerViewerForbidden(c *gin.Context, userID, ledgerID uuid.UUID) bool {
+	if userCanWriteLedger(userID, ledgerID) {
+		return false
+	}
+	c.JSON(http.StatusForbidden, ErrorJSON(c, "ledger.viewer_read_only"))
+	return true
 }
 
 // Category Handlers
@@ -1127,6 +1150,9 @@ func SetBudget(c *gin.Context) {
 	}
 	if !userCanAccessLedger(userID, req.LedgerID) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "no access"})
+		return
+	}
+	if respondLedgerViewerForbidden(c, userID, req.LedgerID) {
 		return
 	}
 

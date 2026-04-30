@@ -74,6 +74,9 @@ func CreateCategory(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "no access to this ledger"})
 		return
 	}
+	if respondLedgerViewerForbidden(c, userID, req.LedgerID) {
+		return
+	}
 
 	sort := 100
 	if req.SortOrder != nil {
@@ -126,6 +129,9 @@ func UpdateCategory(c *gin.Context) {
 
 	if !userCanAccessLedger(userID, cat.LedgerID) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "no access to this ledger"})
+		return
+	}
+	if respondLedgerViewerForbidden(c, userID, cat.LedgerID) {
 		return
 	}
 
@@ -204,6 +210,9 @@ func DeleteCategory(c *gin.Context) {
 
 	if !userCanAccessLedger(userID, cat.LedgerID) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "no access to this ledger"})
+		return
+	}
+	if respondLedgerViewerForbidden(c, userID, cat.LedgerID) {
 		return
 	}
 

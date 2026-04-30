@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -475,6 +476,14 @@ func (t *TelegramAdapter) handleInstallment(msg *tgbotapi.Message) {
 	if err := t.db.Select("preferred_locale").First(&acct, "id = ?", conn.UserID).Error; err == nil {
 		preferEn = strings.HasPrefix(strings.ToLower(strings.TrimSpace(acct.PreferredLocale)), "en")
 	}
+	if ok, _ := service.UserCanWriteLedger(t.db, conn.UserID, ledgerID); !ok {
+		if preferEn {
+			t.sendReply(msg.Chat.ID, "Read-only member: cannot create installments on this ledger.")
+		} else {
+			t.sendReply(msg.Chat.ID, "只读成员：无法在此账本创建分期。")
+		}
+		return
+	}
 	category, matched := t.resolveCategory(ledgerID, pr.CategoryHint, "expense", preferEn)
 	if !matched {
 		t.sendReply(msg.Chat.ID, t.noCategoryReply(ledgerID, pr.CategoryHint, preferEn))
@@ -519,6 +528,14 @@ func (t *TelegramAdapter) handleInstallment(msg *tgbotapi.Message) {
 	})
 	if execErr != nil {
 		log.Printf("bot install: ExecInstallment failed: %v", execErr)
+		if errors.Is(execErr, api.ErrReadOnlyLedgerMember) {
+			if preferEn {
+				t.sendReply(msg.Chat.ID, "Read-only member: cannot create installments on this ledger.")
+			} else {
+				t.sendReply(msg.Chat.ID, "只读成员：无法在此账本创建分期。")
+			}
+			return
+		}
 		t.sendReply(msg.Chat.ID, "创建分期失败："+execErr.Error())
 		return
 	}
@@ -581,12 +598,21 @@ func (t *TelegramAdapter) handlePlainMessage(msg *tgbotapi.Message) {
 		ledgerID = lu.LedgerID
 	}
 
-	// 5) Resolve category within that ledger (keyword zh/en preference follows account locale)
 	preferEn := false
 	var acct models.User
 	if err := t.db.Select("preferred_locale").First(&acct, "id = ?", conn.UserID).Error; err == nil {
 		preferEn = strings.HasPrefix(strings.ToLower(strings.TrimSpace(acct.PreferredLocale)), "en")
 	}
+	if ok, _ := service.UserCanWriteLedger(t.db, conn.UserID, ledgerID); !ok {
+		if preferEn {
+			t.sendReply(msg.Chat.ID, "Read-only member: cannot log entries on this ledger.")
+		} else {
+			t.sendReply(msg.Chat.ID, "只读成员：无法在此账本记账。")
+		}
+		return
+	}
+
+	// 5) Resolve category within that ledger (keyword zh/en preference follows account locale)
 	category, matched := t.resolveCategory(ledgerID, result.CategoryHint, result.Type, preferEn)
 	if !matched {
 		t.sendReply(msg.Chat.ID, t.noCategoryReply(ledgerID, result.CategoryHint, preferEn))

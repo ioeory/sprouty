@@ -197,9 +197,15 @@ func CreateProject(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "no access to this ledger"})
 		return
 	}
+	if respondLedgerViewerForbidden(c, userID, req.LedgerID) {
+		return
+	}
 	if req.BudgetLedgerID != nil && *req.BudgetLedgerID != uuid.Nil {
 		if !userCanAccessLedger(userID, *req.BudgetLedgerID) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "no access to budget ledger"})
+			return
+		}
+		if respondLedgerViewerForbidden(c, userID, *req.BudgetLedgerID) {
 			return
 		}
 	}
@@ -259,6 +265,9 @@ func UpdateProject(c *gin.Context) {
 	}
 	if !userCanAccessLedger(userID, p.LedgerID) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "no access"})
+		return
+	}
+	if respondLedgerViewerForbidden(c, userID, p.LedgerID) {
 		return
 	}
 
@@ -323,6 +332,9 @@ func DeleteProject(c *gin.Context) {
 	}
 	if !userCanAccessLedger(userID, p.LedgerID) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "no access"})
+		return
+	}
+	if respondLedgerViewerForbidden(c, userID, p.LedgerID) {
 		return
 	}
 
@@ -432,6 +444,9 @@ func UpdateProjectBudget(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "no access"})
 		return
 	}
+	if respondLedgerViewerForbidden(c, userID, p.LedgerID) {
+		return
+	}
 
 	var req struct {
 		Mode      string     `json:"mode" binding:"required"` // none | total | monthly
@@ -447,6 +462,9 @@ func UpdateProjectBudget(c *gin.Context) {
 	if req.LedgerID != nil && *req.LedgerID != uuid.Nil {
 		if !userCanAccessLedger(userID, *req.LedgerID) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "no access to budget ledger"})
+			return
+		}
+		if respondLedgerViewerForbidden(c, userID, *req.LedgerID) {
 			return
 		}
 		budgetReqLeg = *req.LedgerID
@@ -483,6 +501,9 @@ func DeleteProjectBudget(c *gin.Context) {
 	}
 	if !userCanAccessLedger(userID, p.LedgerID) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "no access"})
+		return
+	}
+	if respondLedgerViewerForbidden(c, userID, p.LedgerID) {
 		return
 	}
 	err = service.DB.Transaction(func(tx *gorm.DB) error {

@@ -82,6 +82,9 @@ func CreateCategoryKeyword(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "no access"})
 		return
 	}
+	if respondLedgerViewerForbidden(c, userID, cat.LedgerID) {
+		return
+	}
 
 	var req struct {
 		Keyword   *string `json:"keyword"`
@@ -201,6 +204,9 @@ func DeleteCategoryKeyword(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "no access"})
 		return
 	}
+	if respondLedgerViewerForbidden(c, userID, kw.LedgerID) {
+		return
+	}
 	var srcCat models.Category
 	if err := service.DB.First(&srcCat, "id = ?", kw.CategoryID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "category not found"})
@@ -265,6 +271,9 @@ func CreateLedgerKeyword(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "no access"})
 		return
 	}
+	if respondLedgerViewerForbidden(c, userID, lid) {
+		return
+	}
 
 	var req struct {
 		Keyword string `json:"keyword" binding:"required"`
@@ -327,6 +336,9 @@ func DeleteLedgerKeyword(c *gin.Context) {
 	}
 	if kw.UserID != userID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "not owner"})
+		return
+	}
+	if respondLedgerViewerForbidden(c, userID, kw.LedgerID) {
 		return
 	}
 	if err := service.DB.Delete(&kw).Error; err != nil {
@@ -423,7 +435,7 @@ func syncCategoryKeywordCreateToCluster(tx *gorm.DB, userID uuid.UUID, srcCat mo
 		if lid == srcCat.LedgerID {
 			continue
 		}
-		if !userCanAccessLedger(userID, lid) {
+		if !userCanWriteLedger(userID, lid) {
 			continue
 		}
 		var peerCat models.Category
@@ -460,7 +472,7 @@ func syncCategoryKeywordDeleteToCluster(tx *gorm.DB, userID uuid.UUID, srcCat mo
 		if lid == srcCat.LedgerID {
 			continue
 		}
-		if !userCanAccessLedger(userID, lid) {
+		if !userCanWriteLedger(userID, lid) {
 			continue
 		}
 		var peerCat models.Category

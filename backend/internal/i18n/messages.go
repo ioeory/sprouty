@@ -15,6 +15,7 @@ var Messages = map[string]Msg{
 	"ledger.type_invalid":        {ZH: "账本类型必须是 personal 或 family", EN: "Ledger type must be personal or family."},
 	"ledger.demote_requires_unlink_children": {ZH: "请先解除本家庭账本下所有关联的个人子账本，再改为个人账本。", EN: "Unlink all personal sub-ledgers from this family book before changing type to personal."},
 	"ledger.promote_requires_unlink_parent":  {ZH: "请先解除本账本作为子账本与家庭账本的关联，再改为家庭账本。", EN: "Unlink this ledger from its parent family book before changing type to family."},
+	"ledger.viewer_read_only": {ZH: "您在此账本为只读成员，无法执行该操作。", EN: "You are a read-only member on this ledger and cannot perform this action."},
 	"ledger.create_failed":       {ZH: "创建账本失败", EN: "Failed to create ledger."},
 	"common.bad_request":         {ZH: "请求无效", EN: "Bad request."},
 	"common.internal_error":      {ZH: "服务器错误", EN: "Internal server error."},

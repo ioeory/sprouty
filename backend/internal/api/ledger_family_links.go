@@ -162,6 +162,9 @@ func LinkPersonalLedger(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "no access to family ledger"})
 		return
 	}
+	if respondLedgerViewerForbidden(c, uid, familyID) {
+		return
+	}
 	var fam models.Ledger
 	if err := service.DB.First(&fam, "id = ?", familyID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "ledger not found"})
