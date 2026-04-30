@@ -476,7 +476,7 @@ func (t *TelegramAdapter) handleInstallment(msg *tgbotapi.Message) {
 	if err := t.db.Select("preferred_locale").First(&acct, "id = ?", conn.UserID).Error; err == nil {
 		preferEn = strings.HasPrefix(strings.ToLower(strings.TrimSpace(acct.PreferredLocale)), "en")
 	}
-	if ok, _ := service.UserCanWriteLedger(t.db, conn.UserID, ledgerID); !ok {
+	if !service.UserCanWriteLedger(t.db, conn.UserID, ledgerID) {
 		if preferEn {
 			t.sendReply(msg.Chat.ID, "Read-only member: cannot create installments on this ledger.")
 		} else {
@@ -603,7 +603,7 @@ func (t *TelegramAdapter) handlePlainMessage(msg *tgbotapi.Message) {
 	if err := t.db.Select("preferred_locale").First(&acct, "id = ?", conn.UserID).Error; err == nil {
 		preferEn = strings.HasPrefix(strings.ToLower(strings.TrimSpace(acct.PreferredLocale)), "en")
 	}
-	if ok, _ := service.UserCanWriteLedger(t.db, conn.UserID, ledgerID); !ok {
+	if !service.UserCanWriteLedger(t.db, conn.UserID, ledgerID) {
 		if preferEn {
 			t.sendReply(msg.Chat.ID, "Read-only member: cannot log entries on this ledger.")
 		} else {
