@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"sprouts-self/backend/internal/models"
 	"sprouts-self/backend/internal/service"
@@ -144,13 +145,20 @@ func CreateCategoryKeyword(c *gin.Context) {
 		}
 	}
 
-	kw := models.CategoryKeyword{
-		CategoryID: cat.ID,
-		LedgerID:   cat.LedgerID,
-		KeywordZh:  zh,
-		KeywordEn:  en,
-	}
-	if err := service.DB.Create(&kw).Error; err != nil {
+	var kw models.CategoryKeyword
+	if err := service.DB.Transaction(func(tx *gorm.DB) error {
+		kw = models.CategoryKeyword{
+			CategoryID: cat.ID,
+			LedgerID:   cat.LedgerID,
+			KeywordZh:  zh,
+			KeywordEn:  en,
+		}
+		if err := tx.Create(&kw).Error; err != nil {
+			return err
+		}
+		syncCategoryKeywordCreateToCluster(tx, userID, cat, zh, en)
+		return nil
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -193,7 +201,20 @@ func DeleteCategoryKeyword(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "no access"})
 		return
 	}
-	if err := service.DB.Delete(&kw).Error; err != nil {
+	var srcCat models.Category
+	if err := service.DB.First(&srcCat, "id = ?", kw.CategoryID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "category not found"})
+		return
+	}
+	zh, en := kw.KeywordZh, kw.KeywordEn
+	kwID := kw.ID
+	if err := service.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Delete(&models.CategoryKeyword{}, "id = ?", kwID).Error; err != nil {
+			return err
+		}
+		syncCategoryKeywordDeleteToCluster(tx, userID, srcCat, zh, en)
+		return nil
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete"})
 		return
 	}
@@ -319,4 +340,139 @@ func DeleteLedgerKeyword(c *gin.Context) {
 // insensitive regardless of how the user types them.
 func normalizeKeyword(in string) string {
 	return strings.ToLower(strings.TrimSpace(in))
+}
+
+// -------- Family cluster: category keyword sync --------
+
+// expandFamilyLinkedClusterTx is like expandFamilyLinkedCluster but uses tx
+// (e.g. inside a transaction).
+func expandFamilyLinkedClusterTx(tx *gorm.DB, familyID uuid.UUID) []uuid.UUID {
+	var fam models.Ledger
+	if err := tx.First(&fam, "id = ?", familyID).Error; err != nil || fam.Type != "family" {
+		return []uuid.UUID{familyID}
+	}
+	out := []uuid.UUID{familyID}
+	var links []models.LedgerFamilyLink
+	tx.Where("family_ledger_id = ?", familyID).Find(&links)
+	for _, lk := range links {
+		out = append(out, lk.PersonalLedgerID)
+	}
+	return out
+}
+
+// familyClusterLedgerIDsForSync returns the family ledger and every linked
+// personal sub-ledger when the given ledger is part of a family link cluster;
+// otherwise a singleton slice. Used to mirror category keywords across books.
+func familyClusterLedgerIDsForSync(tx *gorm.DB, ledgerID uuid.UUID) []uuid.UUID {
+	var led models.Ledger
+	if err := tx.First(&led, "id = ?", ledgerID).Error; err != nil {
+		return []uuid.UUID{ledgerID}
+	}
+	if led.Type == "family" {
+		return expandFamilyLinkedClusterTx(tx, ledgerID)
+	}
+	var link models.LedgerFamilyLink
+	if err := tx.Where("personal_ledger_id = ?", ledgerID).First(&link).Error; err == nil {
+		return expandFamilyLinkedClusterTx(tx, link.FamilyLedgerID)
+	}
+	return []uuid.UUID{ledgerID}
+}
+
+// categoryKeywordFitsLedger returns whether (zh, en) can be added to categoryID
+// on ledgerID (ledger-wide uniqueness on non-empty zh / en), mirroring
+// CreateCategoryKeyword checks. If an identical row already exists on that
+// category, returns false (caller should treat as no-op).
+func categoryKeywordFitsLedger(tx *gorm.DB, ledgerID, categoryID uuid.UUID, zh, en string) bool {
+	if zh != "" {
+		var dup models.CategoryKeyword
+		err := tx.Where("ledger_id = ? AND keyword_zh = ?", ledgerID, zh).First(&dup).Error
+		if err == nil {
+			if dup.CategoryID != categoryID {
+				return false
+			}
+			if dup.KeywordZh != zh || dup.KeywordEn != en {
+				return false
+			}
+			return false
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return false
+		}
+	}
+	if en != "" {
+		var dup models.CategoryKeyword
+		err := tx.Where("ledger_id = ? AND keyword_en = ?", ledgerID, en).First(&dup).Error
+		if err == nil {
+			if dup.CategoryID != categoryID {
+				return false
+			}
+			if dup.KeywordZh != zh || dup.KeywordEn != en {
+				return false
+			}
+			return false
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return false
+		}
+	}
+	return true
+}
+
+func syncCategoryKeywordCreateToCluster(tx *gorm.DB, userID uuid.UUID, srcCat models.Category, zh, en string) {
+	for _, lid := range familyClusterLedgerIDsForSync(tx, srcCat.LedgerID) {
+		if lid == srcCat.LedgerID {
+			continue
+		}
+		if !userCanAccessLedger(userID, lid) {
+			continue
+		}
+		var peerCat models.Category
+		err := tx.Where("ledger_id = ? AND type = ? AND sort_order = ? AND is_system = ?",
+			lid, srcCat.Type, srcCat.SortOrder, srcCat.IsSystem).First(&peerCat).Error
+		if err != nil {
+			continue
+		}
+		var n int64
+		tx.Model(&models.CategoryKeyword{}).
+			Where("category_id = ? AND ledger_id = ? AND keyword_zh = ? AND keyword_en = ?",
+				peerCat.ID, peerCat.LedgerID, zh, en).
+			Count(&n)
+		if n > 0 {
+			continue
+		}
+		if !categoryKeywordFitsLedger(tx, peerCat.LedgerID, peerCat.ID, zh, en) {
+			continue
+		}
+		row := models.CategoryKeyword{
+			CategoryID: peerCat.ID,
+			LedgerID:   peerCat.LedgerID,
+			KeywordZh:  zh,
+			KeywordEn:  en,
+		}
+		if err := tx.Create(&row).Error; err != nil {
+			log.Printf("syncCategoryKeywordCreateToCluster peer ledger=%s: %v", lid, err)
+		}
+	}
+}
+
+func syncCategoryKeywordDeleteToCluster(tx *gorm.DB, userID uuid.UUID, srcCat models.Category, zh, en string) {
+	for _, lid := range familyClusterLedgerIDsForSync(tx, srcCat.LedgerID) {
+		if lid == srcCat.LedgerID {
+			continue
+		}
+		if !userCanAccessLedger(userID, lid) {
+			continue
+		}
+		var peerCat models.Category
+		err := tx.Where("ledger_id = ? AND type = ? AND sort_order = ? AND is_system = ?",
+			lid, srcCat.Type, srcCat.SortOrder, srcCat.IsSystem).First(&peerCat).Error
+		if err != nil {
+			continue
+		}
+		if err := tx.Where("category_id = ? AND ledger_id = ? AND keyword_zh = ? AND keyword_en = ?",
+			peerCat.ID, peerCat.LedgerID, zh, en).
+			Delete(&models.CategoryKeyword{}).Error; err != nil {
+			log.Printf("syncCategoryKeywordDeleteToCluster peer ledger=%s: %v", lid, err)
+		}
+	}
 }
