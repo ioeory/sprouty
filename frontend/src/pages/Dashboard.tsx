@@ -33,6 +33,7 @@ import {
   type TagWithLedger,
   type MergedTagGroup,
 } from '../lib/mergeClusterTags';
+import { pickCategoryDisplayName } from '../lib/categoryDisplay';
 
 interface CategoryStat {
   name: string;
@@ -75,6 +76,8 @@ type Period = 'month' | 'year' | 'all';
 interface Category {
   id: string;
   name: string;
+  name_zh?: string;
+  name_en?: string;
   icon: string;
   color: string;
   type: string;
@@ -170,7 +173,7 @@ function formatDateShort(iso: string, t: (key: string, opts?: Record<string, unk
 }
 
 export default function Dashboard() {
-  const { t } = useTranslation('dashboard');
+  const { t, i18n } = useTranslation('dashboard');
   const { currentLedger, ledgers, setCurrentLedger } = useLayout();
   const navigate = useNavigate();
 
@@ -196,6 +199,9 @@ export default function Dashboard() {
     categories.forEach((c) => (map[c.id] = c));
     return map;
   }, [categories]);
+
+  const categoryLabel = (c: Category | undefined) =>
+    (c && (pickCategoryDisplayName(i18n.language, c.name_zh, c.name_en) || c.name)) || '';
 
   const ledgerLabelById = React.useMemo(() => {
     const m: Record<string, string> = {};
@@ -716,7 +722,7 @@ export default function Dashboard() {
                       <CategoryIcon name={cat?.icon} color={cat?.color} size={34} />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm text-[var(--color-text)] truncate">
-                          {cat?.name || t('dashboard:uncategorized')}
+                          {categoryLabel(cat) || t('dashboard:uncategorized')}
                           {subName && (
                             <span className="ml-1.5 text-[10px] text-[var(--color-brand)] font-normal">
                               · {subName}
