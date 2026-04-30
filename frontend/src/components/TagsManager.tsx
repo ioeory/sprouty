@@ -99,7 +99,6 @@ export default function TagsManager({ ledgerId, clusterLedgerIds, ledgerLabelByI
         const tag = tags.find((x) => x.id === m.id)!;
         rows.push({ tag, suffix: ` · ${label(tag.ledger_id)}` });
       }
-      seenNorm.add(g.key);
     }
     rows.sort((a, b) => {
       const na = normalizeTagName(a.tag.name);
