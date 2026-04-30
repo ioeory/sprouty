@@ -387,7 +387,17 @@ func GetTransactions(c *gin.Context) {
 	}
 	if search := c.Query("q"); search != "" {
 		like := "%" + search + "%"
-		query = query.Where("note ILIKE ? OR tags ILIKE ?", like, like)
+		// Note + legacy comma-separated `tags` column + structured tag names (transaction_tags ↔ tags).
+		query = query.Where(
+			`note ILIKE ? OR tags ILIKE ? OR EXISTS (
+				SELECT 1 FROM transaction_tags tt
+				INNER JOIN tags ON tags.id = tt.tag_id AND tags.deleted_at IS NULL
+				WHERE tt.transaction_id = transactions.id
+					AND tags.ledger_id = transactions.ledger_id
+					AND tags.name ILIKE ?
+			)`,
+			like, like, like,
+		)
 	}
 
 	paginated := c.Query("limit") != "" || c.Query("offset") != ""
@@ -406,7 +416,8 @@ func GetTransactions(c *gin.Context) {
 	}
 
 	var transactions []models.Transaction
-	q := query.Order("date desc")
+	// Same calendar day shares one `date`; tie-break by recording time so newest-first.
+	q := query.Order("date DESC, created_at DESC")
 	if paginated {
 		q = q.Limit(limit).Offset(offset)
 	}

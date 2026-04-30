@@ -36,6 +36,7 @@ interface Transaction {
   tag_refs?: TxTag[]; // structured tag list populated by the backend
   project_id?: string | null;
   date: string;
+  created_at?: string;
   ledger_id?: string;
 }
 
@@ -56,7 +57,15 @@ function groupByDate(txs: Transaction[]): Array<[string, Transaction[]]> {
     bucket.push(tx);
     map.set(key, bucket);
   });
-  return Array.from(map.entries()).sort((a, b) => (a[0] < b[0] ? 1 : -1));
+  const byCreatedDesc = (a: Transaction, b: Transaction) => {
+    const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+    if (tb !== ta) return tb - ta;
+    return b.id.localeCompare(a.id);
+  };
+  return Array.from(map.entries())
+    .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+    .map(([key, list]) => [key, [...list].sort(byCreatedDesc)] as [string, Transaction[]]);
 }
 
 const PAGE_SIZE = 50;
