@@ -16,6 +16,7 @@ import {
   cn,
 } from '../components/ui';
 import { useLayout } from '../components/AppLayout';
+import { pickCategoryDisplayName } from '../lib/categoryDisplay';
 import CategoryKeywordsEditor from '../components/CategoryKeywordsEditor';
 import type { CategoryKeyword } from '../components/CategoryKeywordsEditor';
 import TagsManager from '../components/TagsManager';
@@ -61,7 +62,7 @@ const DEFAULT_EDIT: EditState = {
 };
 
 export default function Categories() {
-  const { t } = useTranslation(['categories', 'common']);
+  const { t, i18n } = useTranslation(['categories', 'common']);
   const { currentLedger } = useLayout();
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -248,7 +249,7 @@ export default function Categories() {
                   <CategoryIcon name={cat.icon} color={cat.color} size={38} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-[var(--color-text)] flex items-center gap-1.5 flex-wrap">
-                      {cat.name}
+                      {pickCategoryDisplayName(i18n.language, cat.name_zh, cat.name_en) || cat.name}
                       {cat.is_system && (
                         <span className="inline-flex items-center gap-0.5 text-[10px] text-[var(--color-text-subtle)]">
                           <Lock size={10} /> {t('categories:system')}
@@ -461,7 +462,9 @@ export default function Categories() {
           <div className="flex items-center gap-3 p-3 rounded-[var(--radius-md)] bg-[var(--color-surface-muted)]">
             <CategoryIcon name={deleting.icon} color={deleting.color} size={40} />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-[var(--color-text)]">{deleting.name}</p>
+              <p className="text-sm font-medium text-[var(--color-text)]">
+                {pickCategoryDisplayName(i18n.language, deleting.name_zh, deleting.name_en) || deleting.name}
+              </p>
               <p className="text-xs text-[var(--color-text-subtle)]">
                 {deleting.type === 'expense' ? t('categories:expenseType') : t('categories:incomeType')}
               </p>
