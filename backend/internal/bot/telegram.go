@@ -108,8 +108,18 @@ func (t *TelegramAdapter) handleUpdate(update tgbotapi.Update) {
 			t.handleStatus(msg)
 		case "install", "fenqi":
 			t.handleInstallment(msg)
+		case "budget":
+			t.handleBudget(msg)
+		case "today":
+			t.handleToday(msg)
+		case "week":
+			t.handleSpentNDays(msg, 7)
+		case "spent", "days":
+			t.handleSpentNDays(msg, 0)
+		case "detail", "recent":
+			t.handleExpenseDetail(msg)
 		default:
-			t.sendReply(msg.Chat.ID, "Unknown command. Use /start for help.")
+			t.sendReply(msg.Chat.ID, "未知指令。发送 /start 查看帮助。\nUnknown command. Use /start for help.")
 		}
 	} else if msg.Text != "" {
 		t.handlePlainMessage(msg)
@@ -138,7 +148,15 @@ func (t *TelegramAdapter) handleStart(msg *tgbotapi.Message) {
 		"  与发消息记账相同，可写账本关键字、`昨天`/`今天`、括号备注、`l:标签名`。\n" +
 		"  示例：/install 6 1800 餐饮\n" +
 		"  示例：/fenqi 12 12000 昨天 数码 (新手机) l:报销\n\n" +
-		"Installment (equal split): /install <months> <total> <category…> — alias /fenqi"
+		"查询（默认使用你在本群的绑定账号下第一个账本；家庭账本含子账本流水）：\n" +
+		"  /budget — 本月预算剩余、日均可花、今日支出\n" +
+		"  /today — 今日支出合计\n" +
+		"  /week — 最近 7 天支出\n" +
+		"  /days 14 — 最近 N 天支出（1–366）\n" +
+		"  /spent — 同 /days，默认 7 天\n" +
+		"  /detail — 最近支出明细（默认 10 条，可 /detail 20）\n\n" +
+		"Installment (equal split): /install <months> <total> <category…> — alias /fenqi\n\n" +
+		"Queries: /budget, /today, /week, /days N, /spent [N], /detail [N]"
 	t.sendReply(msg.Chat.ID, helpText)
 }
 
@@ -197,6 +215,204 @@ func (t *TelegramAdapter) handleStatus(msg *tgbotapi.Message) {
 		return
 	}
 	t.sendReply(msg.Chat.ID, "Status: Linked ✅")
+}
+
+func (t *TelegramAdapter) bindingUserID(chatID int64) (uuid.UUID, error) {
+	var conn models.UserConnection
+	if err := t.db.Where("platform = ? AND external_id = ?", "telegram", strconv.FormatInt(chatID, 10)).First(&conn).Error; err != nil {
+		return uuid.Nil, err
+	}
+	return conn.UserID, nil
+}
+
+func (t *TelegramAdapter) firstLedgerID(userID uuid.UUID) (uuid.UUID, error) {
+	var lu models.LedgerUser
+	if err := t.db.Where("user_id = ?", userID).First(&lu).Error; err != nil {
+		return uuid.Nil, err
+	}
+	return lu.LedgerID, nil
+}
+
+func (t *TelegramAdapter) userPreferEn(userID uuid.UUID) bool {
+	var acct models.User
+	if err := t.db.Select("preferred_locale").First(&acct, "id = ?", userID).Error; err != nil {
+		return false
+	}
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(acct.PreferredLocale)), "en")
+}
+
+func (t *TelegramAdapter) handleBudget(msg *tgbotapi.Message) {
+	userID, err := t.bindingUserID(msg.Chat.ID)
+	if err != nil {
+		t.sendReply(msg.Chat.ID, "账号未绑定，请先 /bind [PIN]。")
+		return
+	}
+	lid, err := t.firstLedgerID(userID)
+	if err != nil {
+		t.sendReply(msg.Chat.ID, "未找到账本。")
+		return
+	}
+	if !service.UserHasLedgerAccess(t.db, userID, lid) {
+		t.sendReply(msg.Chat.ID, "无账本访问权限。")
+		return
+	}
+	loc := service.UserDigestTimezone(t.db, userID)
+	m, err := service.ComputeDigestMetrics(t.db, userID, lid, time.Now(), loc)
+	if err != nil {
+		log.Printf("handleBudget: %v", err)
+		t.sendReply(msg.Chat.ID, "无法读取数据，请稍后再试。")
+		return
+	}
+	en := t.userPreferEn(userID)
+	if en {
+		t.sendReply(msg.Chat.ID, fmt.Sprintf(
+			"📗 %s\nMonthly budget: ¥%.2f\nSpent (month): ¥%.2f\nRemaining: ¥%.2f\nDaily allowance (%d d left): ¥%.2f\nToday's expenses: ¥%.2f",
+			m.LedgerName, m.TotalBudget, m.MonthExpense, m.Remaining, m.DaysLeft, m.DailyAllowance, m.TodayExpense,
+		))
+		return
+	}
+	t.sendReply(msg.Chat.ID, fmt.Sprintf(
+		"📗 %s\n本月预算：¥%.2f\n本月已花：¥%.2f\n预算剩余：¥%.2f\n日均可花（剩 %d 天）：¥%.2f\n今日支出：¥%.2f",
+		m.LedgerName, m.TotalBudget, m.MonthExpense, m.Remaining, m.DaysLeft, m.DailyAllowance, m.TodayExpense,
+	))
+}
+
+func (t *TelegramAdapter) handleToday(msg *tgbotapi.Message) {
+	userID, err := t.bindingUserID(msg.Chat.ID)
+	if err != nil {
+		t.sendReply(msg.Chat.ID, "账号未绑定，请先 /bind [PIN]。")
+		return
+	}
+	lid, err := t.firstLedgerID(userID)
+	if err != nil {
+		t.sendReply(msg.Chat.ID, "未找到账本。")
+		return
+	}
+	cluster, err := service.LedgerExpenseClusterIDs(t.db, lid)
+	if err != nil {
+		t.sendReply(msg.Chat.ID, "读取账本失败。")
+		return
+	}
+	loc := service.UserDigestTimezone(t.db, userID)
+	local := time.Now().In(loc)
+	start := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
+	end := start.AddDate(0, 0, 1).Add(-time.Nanosecond)
+	sum := service.SumExpenseInRange(t.db, cluster, start, end)
+	var led models.Ledger
+	_ = t.db.First(&led, "id = ?", lid).Error
+	en := t.userPreferEn(userID)
+	if en {
+		t.sendReply(msg.Chat.ID, fmt.Sprintf("📅 %s · %s\nToday's expenses: ¥%.2f", led.Name, local.Format("2006-01-02"), sum))
+		return
+	}
+	t.sendReply(msg.Chat.ID, fmt.Sprintf("📅 %s · %s\n今日支出：¥%.2f", led.Name, local.Format("2006-01-02"), sum))
+}
+
+func (t *TelegramAdapter) handleSpentNDays(msg *tgbotapi.Message, fixed int) {
+	userID, err := t.bindingUserID(msg.Chat.ID)
+	if err != nil {
+		t.sendReply(msg.Chat.ID, "账号未绑定，请先 /bind [PIN]。")
+		return
+	}
+	lid, err := t.firstLedgerID(userID)
+	if err != nil {
+		t.sendReply(msg.Chat.ID, "未找到账本。")
+		return
+	}
+	n := fixed
+	if n <= 0 {
+		n = 7
+		args := strings.Fields(strings.TrimSpace(msg.CommandArguments()))
+		if len(args) > 0 {
+			if v, e := strconv.Atoi(args[0]); e == nil && v > 0 {
+				n = v
+			}
+		}
+	}
+	if n > 366 {
+		n = 366
+	}
+	cluster, err := service.LedgerExpenseClusterIDs(t.db, lid)
+	if err != nil {
+		t.sendReply(msg.Chat.ID, "读取账本失败。")
+		return
+	}
+	loc := service.UserDigestTimezone(t.db, userID)
+	sum := service.SumExpenseLastNDays(t.db, cluster, loc, time.Now(), n)
+	var led models.Ledger
+	_ = t.db.First(&led, "id = ?", lid).Error
+	en := t.userPreferEn(userID)
+	if en {
+		t.sendReply(msg.Chat.ID, fmt.Sprintf("📉 %s\nLast %d days expenses: ¥%.2f", led.Name, n, sum))
+		return
+	}
+	t.sendReply(msg.Chat.ID, fmt.Sprintf("📉 %s\n最近 %d 天支出：¥%.2f", led.Name, n, sum))
+}
+
+func (t *TelegramAdapter) handleExpenseDetail(msg *tgbotapi.Message) {
+	userID, err := t.bindingUserID(msg.Chat.ID)
+	if err != nil {
+		t.sendReply(msg.Chat.ID, "账号未绑定，请先 /bind [PIN]。")
+		return
+	}
+	lid, err := t.firstLedgerID(userID)
+	if err != nil {
+		t.sendReply(msg.Chat.ID, "未找到账本。")
+		return
+	}
+	limit := 10
+	if args := strings.Fields(strings.TrimSpace(msg.CommandArguments())); len(args) > 0 {
+		if v, e := strconv.Atoi(args[0]); e == nil && v > 0 {
+			limit = v
+		}
+	}
+	cluster, err := service.LedgerExpenseClusterIDs(t.db, lid)
+	if err != nil {
+		t.sendReply(msg.Chat.ID, "读取账本失败。")
+		return
+	}
+	loc := service.UserDigestTimezone(t.db, userID)
+	var u models.User
+	_ = t.db.Select("preferred_locale").First(&u, "id = ?", userID).Error
+	lines, err := service.RecentExpenseLines(t.db, cluster, u.PreferredLocale, limit)
+	if err != nil {
+		log.Printf("handleExpenseDetail: %v", err)
+		t.sendReply(msg.Chat.ID, "读取明细失败。")
+		return
+	}
+	var led models.Ledger
+	_ = t.db.First(&led, "id = ?", lid).Error
+	en := t.userPreferEn(userID)
+	var b strings.Builder
+	if en {
+		b.WriteString(fmt.Sprintf("🧾 %s — recent expenses\n", led.Name))
+	} else {
+		b.WriteString(fmt.Sprintf("🧾 %s — 最近支出\n", led.Name))
+	}
+	if len(lines) == 0 {
+		if en {
+			b.WriteString("(none)")
+		} else {
+			b.WriteString("（暂无）")
+		}
+		t.sendReply(msg.Chat.ID, b.String())
+		return
+	}
+	for i, ln := range lines {
+		note := ln.Note
+		if len(note) > 40 {
+			note = note[:37] + "…"
+		}
+		if note != "" {
+			note = " · " + note
+		}
+		b.WriteString(fmt.Sprintf("%d. %s · ¥%.2f · %s%s\n", i+1, ln.Date.In(loc).Format("01-02"), ln.Amount, ln.CategoryDisplay, note))
+	}
+	text := strings.TrimSpace(b.String())
+	if len(text) > 4000 {
+		text = text[:3997] + "…"
+	}
+	t.sendReply(msg.Chat.ID, text)
 }
 
 // handleInstallment creates equal-split expense installments (same installment_group_id as Web).

@@ -52,6 +52,7 @@ func main() {
 	protected.Use(api.AuthMiddleware())
 	{
 		protected.PUT("/user/locale", api.PutUserLocale)
+		protected.PUT("/user/password", api.PutUserPassword)
 
 		// Ledger routes
 		protected.GET("/ledgers", api.GetLedgers)
@@ -63,6 +64,7 @@ func main() {
 		// Ledger sharing
 		protected.POST("/ledgers/:id/invite", api.CreateLedgerInvite)
 		protected.GET("/ledgers/:id/members", api.GetLedgerMembers)
+		protected.PUT("/ledgers/:id/members/:userId/role", api.PutLedgerMemberRole)
 		protected.DELETE("/ledgers/:id/members/:userId", api.RemoveLedgerMember)
 		protected.POST("/ledgers/join", api.JoinLedger)
 		protected.GET("/ledgers/:id/linked-personal", api.GetLinkedPersonalLedgers)

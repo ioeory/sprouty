@@ -36,5 +36,15 @@
   "paletteHint": "主色与强调色；仅保存在本机浏览器。",
   "palette_default": "默认",
   "palette_green": "自然绿",
-  "mainNav": "主导航"
+  "mainNav": "主导航",
+  "changePassword": "修改密码",
+  "changePasswordTitle": "修改登录密码",
+  "changePasswordHint": "若账号仅有 OIDC 登录且尚未设置过密码，可留空「当前密码」直接设置新密码。",
+  "currentPassword": "当前密码",
+  "newPassword": "新密码",
+  "confirmPassword": "确认新密码",
+  "passwordMismatch": "两次输入的新密码不一致",
+  "passwordChanged": "密码已更新",
+  "passwordMinHint": "至少 6 位",
+  "passwordTooShort": "密码至少 6 位"
 }

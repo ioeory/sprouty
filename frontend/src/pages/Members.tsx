@@ -34,6 +34,7 @@ interface Member {
   nickname: string;
   email?: string;
   is_owner: boolean;
+  member_role: string;
 }
 
 interface MembersResp {
@@ -72,6 +73,7 @@ export default function Members() {
   const [linksLoading, setLinksLoading] = useState(false);
   const [linkPick, setLinkPick] = useState('');
   const [linkBusy, setLinkBusy] = useState(false);
+  const [roleUpdatingId, setRoleUpdatingId] = useState<string | null>(null);
 
   const loadFamilyLinks = async (ledgerId: string) => {
     setLinksLoading(true);
@@ -169,6 +171,26 @@ export default function Members() {
     }
   };
 
+  const memberRoleLabel = (role: string) => {
+    if (role === 'owner') return t('members:owner');
+    if (role === 'viewer') return t('members:roleViewer');
+    return t('members:roleEditor');
+  };
+
+  const updateMemberRole = async (m: Member, role: string) => {
+    if (!currentLedger || m.is_owner) return;
+    setRoleUpdatingId(m.id);
+    setError('');
+    try {
+      await api.put(`/ledgers/${currentLedger.id}/members/${m.id}/role`, { member_role: role });
+      await load(currentLedger.id);
+    } catch (err: any) {
+      setError(err.response?.data?.error || t('members:roleUpdateFailed'));
+    } finally {
+      setRoleUpdatingId(null);
+    }
+  };
+
   const confirmRemove = async () => {
     if (!removing || !currentLedger) return;
     setActionLoading(true);
@@ -255,6 +277,21 @@ export default function Members() {
                         @{m.username}
                         {m.email && <span className="ml-1.5">· {m.email}</span>}
                       </p>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                        <Badge tone="neutral">{memberRoleLabel(m.member_role || 'editor')}</Badge>
+                        {data.is_owner && !m.is_owner && (
+                          <select
+                            aria-label={t('members:roleLabel')}
+                            disabled={roleUpdatingId === m.id}
+                            value={m.member_role === 'viewer' ? 'viewer' : 'editor'}
+                            onChange={(e) => void updateMemberRole(m, e.target.value)}
+                            className="text-[11px] h-7 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-[var(--color-text)]"
+                          >
+                            <option value="editor">{t('members:roleEditor')}</option>
+                            <option value="viewer">{t('members:roleViewer')}</option>
+                          </select>
+                        )}
+                      </div>
                     </div>
                     {data.is_owner && !m.is_owner && (
                       <button

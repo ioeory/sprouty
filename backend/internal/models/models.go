@@ -194,11 +194,15 @@ type Budget struct {
 	Scope      string     `gorm:"index;default:ledger_total" json:"scope"`
 }
 
-// LedgerUser join table for explicit queries
+// LedgerUser join table for explicit queries and member_role (editor | viewer).
 type LedgerUser struct {
-	UserID   uuid.UUID `gorm:"type:uuid;primaryKey"`
-	LedgerID uuid.UUID `gorm:"type:uuid;primaryKey"`
+	UserID     uuid.UUID `gorm:"type:uuid;primaryKey" json:"user_id"`
+	LedgerID   uuid.UUID `gorm:"type:uuid;primaryKey" json:"ledger_id"`
+	MemberRole string    `gorm:"size:16;not null;default:editor" json:"member_role"`
 }
+
+// TableName keeps GORM on the legacy join table name.
+func (LedgerUser) TableName() string { return "ledger_users" }
 
 // Tag represents a user-defined label that can be attached to any number of
 // transactions. Scoped per-ledger so household members share the same palette.

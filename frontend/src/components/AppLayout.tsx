@@ -9,6 +9,7 @@ import {
   FolderKanban,
   Settings as SettingsIcon,
   LogOut,
+  KeyRound,
   Sprout,
   ChevronDown,
   Plus,
@@ -89,6 +90,13 @@ export default function AppLayout() {
   const [renameSaving, setRenameSaving] = useState(false);
   const [renameErr, setRenameErr] = useState('');
   const [renameDefaultBudget, setRenameDefaultBudget] = useState('');
+  const [pwdOpen, setPwdOpen] = useState(false);
+  const [pwdCurrent, setPwdCurrent] = useState('');
+  const [pwdNew, setPwdNew] = useState('');
+  const [pwdConfirm, setPwdConfirm] = useState('');
+  const [pwdSaving, setPwdSaving] = useState(false);
+  const [pwdErr, setPwdErr] = useState('');
+  const [pwdOk, setPwdOk] = useState(false);
 
   const openAddRecordFromFab = React.useCallback(() => {
     if (!currentLedger) return;
@@ -431,6 +439,21 @@ export default function AppLayout() {
                   <p className="text-[10px] text-[var(--color-text-subtle)] leading-tight">{t('common:loggedIn')}</p>
                 </div>
                 <button
+                  type="button"
+                  onClick={() => {
+                    setPwdErr('');
+                    setPwdOk(false);
+                    setPwdCurrent('');
+                    setPwdNew('');
+                    setPwdConfirm('');
+                    setPwdOpen(true);
+                  }}
+                  title={t('common:changePassword')}
+                  className="ml-0.5 w-8 h-8 flex items-center justify-center rounded-[var(--radius-md)] text-[var(--color-text-subtle)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)] transition-colors"
+                >
+                  <KeyRound size={14} />
+                </button>
+                <button
                   onClick={handleLogout}
                   title={t('common:logout')}
                   className="ml-1 w-8 h-8 flex items-center justify-center rounded-[var(--radius-md)] text-[var(--color-text-subtle)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] transition-colors"
@@ -533,6 +556,84 @@ export default function AppLayout() {
                 step={100}
               />
               <p className="text-[11px] text-[var(--color-text-subtle)] leading-relaxed">{t('ledger:defaultBudgetHint')}</p>
+            </div>
+          </Modal>
+        )}
+
+        {pwdOpen && (
+          <Modal
+            open={pwdOpen}
+            onClose={() => !pwdSaving && setPwdOpen(false)}
+            title={t('common:changePasswordTitle')}
+            description={t('common:changePasswordHint')}
+            footer={
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" size="sm" disabled={pwdSaving} onClick={() => setPwdOpen(false)}>
+                  {t('common:cancel')}
+                </Button>
+                <Button
+                  size="sm"
+                  loading={pwdSaving}
+                  onClick={async () => {
+                    setPwdErr('');
+                    setPwdOk(false);
+                    if (pwdNew.length < 6) {
+                      setPwdErr(t('common:passwordTooShort'));
+                      return;
+                    }
+                    if (pwdNew !== pwdConfirm) {
+                      setPwdErr(t('common:passwordMismatch'));
+                      return;
+                    }
+                    setPwdSaving(true);
+                    try {
+                      const body: Record<string, string> = { new_password: pwdNew };
+                      if (pwdCurrent.trim()) body.current_password = pwdCurrent.trim();
+                      await api.put('/user/password', body);
+                      setPwdOk(true);
+                      setPwdCurrent('');
+                      setPwdNew('');
+                      setPwdConfirm('');
+                      setTimeout(() => setPwdOpen(false), 1200);
+                    } catch (e: any) {
+                      setPwdErr(e.response?.data?.error || t('common:saveFailed'));
+                    } finally {
+                      setPwdSaving(false);
+                    }
+                  }}
+                >
+                  {t('common:save')}
+                </Button>
+              </div>
+            }
+          >
+            {pwdOk && (
+              <p className="text-xs text-[var(--color-brand)] mb-3">{t('common:passwordChanged')}</p>
+            )}
+            {pwdErr && <p className="text-xs text-[var(--color-danger)] mb-3">{pwdErr}</p>}
+            <div className="space-y-3">
+              <Input
+                label={t('common:currentPassword')}
+                type="password"
+                autoComplete="current-password"
+                value={pwdCurrent}
+                onChange={(e) => setPwdCurrent(e.target.value)}
+              />
+              <Input
+                label={t('common:newPassword')}
+                type="password"
+                autoComplete="new-password"
+                value={pwdNew}
+                onChange={(e) => setPwdNew(e.target.value)}
+                placeholder={t('common:passwordMinHint')}
+              />
+              <Input
+                label={t('common:confirmPassword')}
+                type="password"
+                autoComplete="new-password"
+                value={pwdConfirm}
+                onChange={(e) => setPwdConfirm(e.target.value)}
+              />
             </div>
           </Modal>
         )}

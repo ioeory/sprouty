@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import api from '../api/client';
-import { Card, CardHeader, Button, Input } from '../components/ui';
+import { Card, CardHeader, Button, Input, Modal } from '../components/ui';
 import { Shield, ScrollText, Loader2, UserPlus, Users, KeyRound } from 'lucide-react';
 
 interface AuditItem {
@@ -51,6 +51,13 @@ export default function Admin() {
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [userKeyword, setUserKeyword] = useState('');
   const [loadingUsers, setLoadingUsers] = useState(false);
+  const [resetUser, setResetUser] = useState<ManagedUser | null>(null);
+  const [resetPwd, setResetPwd] = useState('');
+  const [resetPwd2, setResetPwd2] = useState('');
+  const [resetPhrase, setResetPhrase] = useState('');
+  const [resetAck, setResetAck] = useState(false);
+  const [resetSubmitting, setResetSubmitting] = useState(false);
+  const [resetModalErr, setResetModalErr] = useState('');
 
   const loadSettings = async () => {
     const res = await api.get('/admin/settings');
@@ -136,20 +143,50 @@ export default function Admin() {
     }
   };
 
-  const resetPassword = async (u: ManagedUser) => {
-    const pwd = window.prompt(t('pwdResetPrompt', { username: u.username }));
-    if (!pwd) return;
-    if (pwd.length < 6) {
-      setErr(t('newPasswordMin'));
+  const openResetPasswordModal = (u: ManagedUser) => {
+    setResetModalErr('');
+    setResetPwd('');
+    setResetPwd2('');
+    setResetPhrase('');
+    setResetAck(false);
+    setResetUser(u);
+  };
+
+  const closeResetPasswordModal = () => {
+    if (resetSubmitting) return;
+    setResetUser(null);
+  };
+
+  const submitResetPassword = async () => {
+    if (!resetUser) return;
+    setResetModalErr('');
+    if (resetPwd.length < 6) {
+      setResetModalErr(t('newPasswordMin'));
       return;
     }
+    if (resetPwd !== resetPwd2) {
+      setResetModalErr(t('resetPwdMismatch'));
+      return;
+    }
+    if (resetPhrase.trim() !== resetUser.username) {
+      setResetModalErr(t('resetPwdUsernameMismatch'));
+      return;
+    }
+    if (!resetAck) {
+      setResetModalErr(t('resetPwdMustAck'));
+      return;
+    }
+    setResetSubmitting(true);
     setErr('');
     try {
-      await api.put(`/admin/users/${u.id}/password`, { new_password: pwd });
+      await api.put(`/admin/users/${resetUser.id}/password`, { new_password: resetPwd });
+      setResetUser(null);
       await loadLogs(1);
       setPage(1);
     } catch (e: any) {
-      setErr(e.response?.data?.error || t('resetPwdFailed'));
+      setResetModalErr(e.response?.data?.error || t('resetPwdFailed'));
+    } finally {
+      setResetSubmitting(false);
     }
   };
 
@@ -274,7 +311,7 @@ export default function Admin() {
                         size="sm"
                         variant="secondary"
                         leftIcon={<KeyRound size={12} />}
-                        onClick={() => resetPassword(u)}
+                        onClick={() => openResetPasswordModal(u)}
                       >
                         {t('resetPwd')}
                       </Button>
@@ -439,6 +476,64 @@ export default function Admin() {
           </div>
         )}
       </Card>
+
+      {resetUser && (
+        <Modal
+          open
+          onClose={closeResetPasswordModal}
+          title={t('resetPwdModalTitle')}
+          description={t('resetPwdModalDesc')}
+          footer={
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" disabled={resetSubmitting} onClick={closeResetPasswordModal}>
+                {t('cancel')}
+              </Button>
+              <Button size="sm" loading={resetSubmitting} onClick={() => void submitResetPassword()}>
+                {t('confirmResetPwd')}
+              </Button>
+            </div>
+          }
+        >
+          <p className="text-xs font-medium text-[var(--color-text)] mb-1">
+            {t('colUser')}: <span className="text-[var(--color-brand)]">{resetUser.username}</span>
+          </p>
+          {resetModalErr && (
+            <p className="text-xs text-[var(--color-danger)] mb-3">{resetModalErr}</p>
+          )}
+          <div className="space-y-3">
+            <Input
+              label={t('resetPwdNew')}
+              type="password"
+              autoComplete="new-password"
+              value={resetPwd}
+              onChange={(e) => setResetPwd(e.target.value)}
+            />
+            <Input
+              label={t('resetPwdConfirm')}
+              type="password"
+              autoComplete="new-password"
+              value={resetPwd2}
+              onChange={(e) => setResetPwd2(e.target.value)}
+            />
+            <Input
+              label={t('resetPwdTypeLabel')}
+              value={resetPhrase}
+              onChange={(e) => setResetPhrase(e.target.value)}
+              placeholder={resetUser.username}
+              autoComplete="off"
+            />
+            <label className="flex items-start gap-2 text-xs text-[var(--color-text)] cursor-pointer">
+              <input
+                type="checkbox"
+                checked={resetAck}
+                onChange={(e) => setResetAck(e.target.checked)}
+                className="mt-0.5 rounded border-[var(--color-border)]"
+              />
+              <span>{t('resetPwdAckLabel')}</span>
+            </label>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

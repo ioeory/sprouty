@@ -36,5 +36,15 @@
   "paletteHint": "Brand and accent colors; saved in this browser only.",
   "palette_default": "Default",
   "palette_green": "Nature green",
-  "mainNav": "Main navigation"
+  "mainNav": "Main navigation",
+  "changePassword": "Change password",
+  "changePasswordTitle": "Change login password",
+  "changePasswordHint": "If you use OIDC only and have never set a password, leave \"current password\" empty and set a new one.",
+  "currentPassword": "Current password",
+  "newPassword": "New password",
+  "confirmPassword": "Confirm new password",
+  "passwordMismatch": "New passwords do not match",
+  "passwordChanged": "Password updated",
+  "passwordMinHint": "At least 6 characters",
+  "passwordTooShort": "Password must be at least 6 characters"
 }

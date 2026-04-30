@@ -382,6 +382,16 @@ func auditBuildSummary(
 			return fmt.Sprintf("Registration denied (closed). Attempted username \"%s\".", u)
 		}
 		return fmt.Sprintf("注册被拒绝：公开注册已关闭，尝试用户名「%s」。", u)
+	case "user.password_change":
+		if en {
+			return fmt.Sprintf("%s changed their password.", actorLabel)
+		}
+		return fmt.Sprintf("%s 修改了登录密码。", actorLabel)
+	case "auth.password_change_failed":
+		if en {
+			return fmt.Sprintf("%s failed to change password (wrong current password).", actorLabel)
+		}
+		return fmt.Sprintf("%s 修改密码失败（当前密码错误）。", actorLabel)
 	}
 
 	// --- Admin ---
@@ -525,6 +535,21 @@ func auditBuildSummary(
 			return fmt.Sprintf("%s removed %s from %s.", actorLabel, target, resourceLabel)
 		}
 		return fmt.Sprintf("%s 将 %s 从 %s 中移除。", actorLabel, target, resourceLabel)
+	case "ledger.member_role":
+		targetID := metaString(meta, "target_user_id")
+		role := metaString(meta, "member_role")
+		target := targetID
+		if id, err := uuid.Parse(targetID); err == nil {
+			if u, ok := users[id]; ok {
+				target = auditUserDisplayName(u)
+			} else if len(targetID) >= 8 {
+				target = targetID[:8]
+			}
+		}
+		if en {
+			return fmt.Sprintf("%s set member %s to role %s on %s.", actorLabel, target, role, resourceLabel)
+		}
+		return fmt.Sprintf("%s 将成员 %s 在 %s 的权限设为「%s」。", actorLabel, target, resourceLabel, role)
 	case "ledger.family_link_create":
 		if row.ResourceID == nil {
 			if en {

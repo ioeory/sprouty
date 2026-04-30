@@ -167,6 +167,7 @@ func InitDB() {
 	err = db.AutoMigrate(
 		&models.User{},
 		&models.Ledger{},
+		&models.LedgerUser{},
 		&models.Category{},
 		&models.CategoryKeyword{},
 		&models.LedgerKeyword{},
@@ -189,6 +190,7 @@ func InitDB() {
 	}
 
 	DB = db
+	ensureLedgerUsersMemberRole()
 	dropLegacyCategoryNameColumn()
 	dropLegacyCategoryKeywordColumn()
 	ensurePasswordNullable()
@@ -219,6 +221,18 @@ func ensurePushSubscriptionMultiRow() {
 		if err := DB.Exec(stmt).Error; err != nil {
 			log.Printf("ensurePushSubscriptionMultiRow: %v", err)
 		}
+	}
+}
+
+// ensureLedgerUsersMemberRole adds member_role for per-ledger access display (editor | viewer).
+func ensureLedgerUsersMemberRole() {
+	var tbl int64
+	DB.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ledger_users'`).Scan(&tbl)
+	if tbl == 0 {
+		return
+	}
+	if err := DB.Exec(`ALTER TABLE ledger_users ADD COLUMN IF NOT EXISTS member_role varchar(16) NOT NULL DEFAULT 'editor'`).Error; err != nil {
+		log.Printf("ensureLedgerUsersMemberRole: %v", err)
 	}
 }
 

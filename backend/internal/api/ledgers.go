@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
+	"strings"
 	"sprouts-self/backend/internal/models"
 	"sprouts-self/backend/internal/service"
 	"time"
@@ -143,21 +144,44 @@ func GetLedgerMembers(c *gin.Context) {
 		return
 	}
 
+	type roleRow struct {
+		UserID     uuid.UUID `gorm:"column:user_id"`
+		MemberRole string    `gorm:"column:member_role"`
+	}
+	var roleRows []roleRow
+	_ = service.DB.Table("ledger_users").
+		Select("user_id, COALESCE(NULLIF(TRIM(member_role), ''), 'editor') as member_role").
+		Where("ledger_id = ?", ledgerID).
+		Scan(&roleRows).Error
+	roleOf := make(map[uuid.UUID]string, len(roleRows))
+	for _, r := range roleRows {
+		roleOf[r.UserID] = r.MemberRole
+	}
+
 	type memberDTO struct {
-		ID       uuid.UUID `json:"id"`
-		Username string    `json:"username"`
-		Nickname string    `json:"nickname"`
-		Email    *string   `json:"email"`
-		IsOwner  bool      `json:"is_owner"`
+		ID         uuid.UUID `json:"id"`
+		Username   string    `json:"username"`
+		Nickname   string    `json:"nickname"`
+		Email      *string   `json:"email"`
+		IsOwner    bool      `json:"is_owner"`
+		MemberRole string    `json:"member_role"`
 	}
 	members := make([]memberDTO, 0, len(ledger.Members))
 	for _, m := range ledger.Members {
+		mr := roleOf[m.ID]
+		if mr == "" {
+			mr = "editor"
+		}
+		if m.ID == ledger.OwnerID {
+			mr = "owner"
+		}
 		members = append(members, memberDTO{
-			ID:       m.ID,
-			Username: m.Username,
-			Nickname: m.Nickname,
-			Email:    m.Email,
-			IsOwner:  m.ID == ledger.OwnerID,
+			ID:         m.ID,
+			Username:   m.Username,
+			Nickname:   m.Nickname,
+			Email:      m.Email,
+			IsOwner:    m.ID == ledger.OwnerID,
+			MemberRole: mr,
 		})
 	}
 
@@ -166,6 +190,72 @@ func GetLedgerMembers(c *gin.Context) {
 		"members":  members,
 		"is_owner": ledger.OwnerID == userID,
 	})
+}
+
+// PutLedgerMemberRole sets member_role (editor | viewer) for a non-owner member. Owner only.
+func PutLedgerMemberRole(c *gin.Context) {
+	userID, err := currentUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid session"})
+		return
+	}
+	ledgerID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ledger id"})
+		return
+	}
+	memberID, err := uuid.Parse(c.Param("userId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user id"})
+		return
+	}
+	var req struct {
+		MemberRole string `json:"member_role" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	role := strings.ToLower(strings.TrimSpace(req.MemberRole))
+	if role != "editor" && role != "viewer" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "member_role must be editor or viewer"})
+		return
+	}
+
+	var ledger models.Ledger
+	if err := service.DB.First(&ledger, "id = ?", ledgerID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "ledger not found"})
+		return
+	}
+	if ledger.OwnerID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only the owner can change member roles"})
+		return
+	}
+	if memberID == ledger.OwnerID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot change owner role"})
+		return
+	}
+	var n int64
+	service.DB.Table("ledger_users").Where("user_id = ? AND ledger_id = ?", memberID, ledgerID).Count(&n)
+	if n == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user is not a member of this ledger"})
+		return
+	}
+
+	if err := service.DB.Exec(
+		"UPDATE ledger_users SET member_role = ? WHERE user_id = ? AND ledger_id = ?",
+		role, memberID, ledgerID,
+	).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update role"})
+		return
+	}
+
+	WriteAuditLog(c, &userID, "ledger.member_role", "ledger", strPtr(ledgerID.String()), map[string]interface{}{
+		"target_user_id": memberID.String(),
+		"member_role":    role,
+	})
+
+	c.JSON(http.StatusOK, gin.H{"ok": true, "member_role": role})
 }
 
 // RemoveLedgerMember kicks a member from a ledger (owner-only; cannot remove owner).

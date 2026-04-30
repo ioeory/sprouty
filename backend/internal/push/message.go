@@ -32,11 +32,11 @@ func BuildDigestMessage(s *models.PushNotificationSetting, m *DigestMetrics, lan
 
 	if s.IncludeBudgetRemaining {
 		if langEN {
-			b.WriteString(fmt.Sprintf("Monthly budget: ¥%.2f\nSpent (month): ¥%.2f\nRemaining: ¥%.2f\n",
-				m.TotalBudget, m.MonthExpense, m.Remaining))
+			b.WriteString(fmt.Sprintf("Monthly budget: ¥%.2f\nSpent (month): ¥%.2f\nRemaining: ¥%.2f\nDaily allowance (%d d left): ¥%.2f\n",
+				m.TotalBudget, m.MonthExpense, m.Remaining, m.DaysLeft, m.DailyAllowance))
 		} else {
-			b.WriteString(fmt.Sprintf("本月预算：¥%.2f\n本月已花：¥%.2f\n预算剩余：¥%.2f\n",
-				m.TotalBudget, m.MonthExpense, m.Remaining))
+			b.WriteString(fmt.Sprintf("本月预算：¥%.2f\n本月已花：¥%.2f\n预算剩余：¥%.2f\n日均可花（剩 %d 天）：¥%.2f\n",
+				m.TotalBudget, m.MonthExpense, m.Remaining, m.DaysLeft, m.DailyAllowance))
 		}
 	}
 	if s.IncludeTodayExpense {
