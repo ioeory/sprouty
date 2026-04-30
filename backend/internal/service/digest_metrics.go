@@ -102,6 +102,7 @@ func ComputeDigestMetrics(db *gorm.DB, userID, ledgerID uuid.UUID, now time.Time
 	localNow := now.In(loc)
 	ym := localNow.Format("2006-01")
 	firstOfMonth := time.Date(localNow.Year(), localNow.Month(), 1, 0, 0, 0, 0, loc)
+	lastOfMonth := time.Date(localNow.Year(), localNow.Month()+1, 0, 23, 59, 59, 999999999, loc)
 
 	var totalBudget float64
 	for _, lid := range budgetLedgerIDs {
