@@ -19,6 +19,7 @@ import api from '../api/client';
 import { Badge, Button, Card, CategoryIcon, EmptyState, Input, Select, Modal } from '../components/ui';
 import AddRecordModal from '../components/AddRecordModal';
 import { useLayout } from '../components/AppLayout';
+import { pickCategoryDisplayName } from '../lib/categoryDisplay';
 
 interface TxTag {
   id: string;
@@ -45,6 +46,8 @@ interface Transaction {
 interface Category {
   id: string;
   name: string;
+  name_zh?: string;
+  name_en?: string;
   icon: string;
   color: string;
   type: string;
@@ -97,7 +100,7 @@ function mergeCategoriesById(lists: Category[][]): Category[] {
 }
 
 export default function Transactions() {
-  const { t } = useTranslation(['transactions', 'common']);
+  const { t, i18n } = useTranslation(['transactions', 'common']);
   const { currentLedger, ledgers } = useLayout();
   const mutableLedgerIds = useMutableLedgerIdSet(ledgers);
 
@@ -139,6 +142,9 @@ export default function Transactions() {
     categories.forEach((c) => (map[c.id] = c));
     return map;
   }, [categories]);
+
+  const categoryLabel = (c: Category | undefined) =>
+    (c && (pickCategoryDisplayName(i18n.language, c.name_zh, c.name_en) || c.name)) || '';
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search), 300);
@@ -365,7 +371,7 @@ export default function Transactions() {
               <option value="">{t('transactions:categoryAll')}</option>
               {categories.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name}（{c.type === 'expense' ? t('transactions:categoryTypeExpense') : t('transactions:categoryTypeIncome')}）
+                  {categoryLabel(c)}（{c.type === 'expense' ? t('transactions:categoryTypeExpense') : t('transactions:categoryTypeIncome')}）
                 </option>
               ))}
             </Select>
@@ -456,7 +462,7 @@ export default function Transactions() {
                           <CategoryIcon name={cat?.icon} color={cat?.color} size={36} />
                           <div className="flex-1 min-w-0">
                             <p className="text-sm text-[var(--color-text)] truncate flex items-center gap-1.5 flex-wrap">
-                              {cat?.name || t('transactions:uncategorized')}
+                              {categoryLabel(cat) || t('transactions:uncategorized')}
                               {subName && (
                                 <span className="text-[10px] text-[var(--color-brand)] shrink-0">· {subName}</span>
                               )}
@@ -647,7 +653,7 @@ export default function Transactions() {
             />
             <div className="flex-1 min-w-0">
               <p className="text-sm text-[var(--color-text)]">
-                {categoryMap[deleting.category_id]?.name || t('transactions:uncategorized')}
+                {categoryLabel(categoryMap[deleting.category_id]) || t('transactions:uncategorized')}
               </p>
               <p className="text-xs text-[var(--color-text-subtle)] truncate">
                 {deleting.note || t('transactions:noNote')}
