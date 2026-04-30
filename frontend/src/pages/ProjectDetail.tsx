@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
@@ -22,6 +22,7 @@ import {
 } from '../components/ui';
 import SpendingChart from '../components/SpendingChart';
 import ProjectFormModal from '../components/ProjectFormModal';
+import { pickCategoryDisplayName } from '../lib/categoryDisplay';
 import ProjectBudgetModal from '../components/ProjectBudgetModal';
 
 interface ProjectSummary {
@@ -48,6 +49,9 @@ interface ProjectSummary {
 
 interface CatStat {
   name: string;
+  name_zh?: string;
+  name_en?: string;
+  category_id?: string;
   value: number;
   color: string;
 }
@@ -62,7 +66,7 @@ interface Transaction {
 }
 
 export default function ProjectDetail() {
-  const { t } = useTranslation('projects');
+  const { t, i18n } = useTranslation('projects');
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [summary, setSummary] = useState<ProjectSummary | null>(null);
@@ -71,6 +75,15 @@ export default function ProjectDetail() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [editingBudget, setEditingBudget] = useState(false);
+
+  const chartData = useMemo(
+    () =>
+      catStats.map((d) => ({
+        ...d,
+        name: pickCategoryDisplayName(i18n.language, d.name_zh, d.name_en) || d.name,
+      })),
+    [catStats, i18n.language],
+  );
 
   const load = async () => {
     if (!id) return;
@@ -276,7 +289,7 @@ export default function ProjectDetail() {
           />
           <div className="mt-4">
             <SpendingChart
-              data={catStats}
+              data={chartData}
               totalLabel={t('chartTotal')}
               emptyTitle={t('chartEmptyTitle')}
               emptyDescription={t('chartEmptyDesc')}

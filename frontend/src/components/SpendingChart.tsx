@@ -8,6 +8,10 @@ interface PieDatum {
   name: string;
   value: number;
   color: string;
+  /** Present for dashboard category slices — stable list keys */
+  category_id?: string;
+  name_zh?: string;
+  name_en?: string;
 }
 
 interface Props {
@@ -53,7 +57,10 @@ export default function SpendingChart({
               strokeWidth={2}
             >
               {data.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={entry.color || '#a1a1aa'} />
+                <Cell
+                  key={entry.category_id || `cell-${index}`}
+                  fill={entry.color || '#a1a1aa'}
+                />
               ))}
             </Pie>
             <Tooltip
@@ -86,10 +93,10 @@ export default function SpendingChart({
           .slice()
           .sort((a, b) => b.value - a.value)
           .slice(0, 6)
-          .map((d) => {
+          .map((d, index) => {
             const pct = total > 0 ? (d.value / total) * 100 : 0;
             return (
-              <li key={d.name} className="flex items-center gap-3">
+              <li key={d.category_id || `legend-${index}-${d.name}`} className="flex items-center gap-3">
                 <span
                   className="w-2.5 h-2.5 rounded-sm shrink-0"
                   style={{ backgroundColor: d.color || '#a1a1aa' }}

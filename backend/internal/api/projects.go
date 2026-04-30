@@ -368,19 +368,23 @@ func GetProjectSummary(c *gin.Context) {
 
 	// Category breakdown for this project (lifetime)
 	type CatStat struct {
-		Name  string  `json:"name"`
-		Value float64 `json:"value"`
-		Color string  `json:"color"`
+		Name         string  `json:"name"`
+		NameZh       string  `json:"name_zh,omitempty"`
+		NameEn       string  `json:"name_en,omitempty"`
+		CategoryID   string  `json:"category_id,omitempty"`
+		Value        float64 `json:"value"`
+		Color        string  `json:"color"`
 	}
 	type catPieRaw struct {
-		NameZh string  `gorm:"column:name_zh"`
-		NameEn string  `gorm:"column:name_en"`
-		Value  float64 `gorm:"column:value"`
-		Color  string  `gorm:"column:color"`
+		CategoryID uuid.UUID `gorm:"column:category_id"`
+		NameZh     string    `gorm:"column:name_zh"`
+		NameEn     string    `gorm:"column:name_en"`
+		Value      float64   `gorm:"column:value"`
+		Color      string    `gorm:"column:color"`
 	}
 	var rawCats []catPieRaw
 	catQ := service.DB.Model(&models.Transaction{}).
-		Select("categories.name_zh as name_zh, categories.name_en as name_en, SUM(transactions.amount) as value, categories.color as color").
+		Select("categories.id as category_id, categories.name_zh as name_zh, categories.name_en as name_en, SUM(transactions.amount) as value, categories.color as color").
 		Joins("JOIN categories ON transactions.category_id = categories.id").
 		Where("transactions.project_id = ? AND transactions.type = 'expense'", p.ID)
 	if sum.Budget.Mode != "none" && sum.Budget.LedgerID != uuid.Nil {
@@ -391,9 +395,12 @@ func GetProjectSummary(c *gin.Context) {
 	catStats := make([]CatStat, 0, len(rawCats))
 	for _, row := range rawCats {
 		catStats = append(catStats, CatStat{
-			Name:  service.PickCategoryDisplayName(appLoc, row.NameZh, row.NameEn),
-			Value: row.Value,
-			Color: row.Color,
+			Name:       service.PickCategoryDisplayName(appLoc, row.NameZh, row.NameEn),
+			NameZh:     row.NameZh,
+			NameEn:     row.NameEn,
+			CategoryID: row.CategoryID.String(),
+			Value:      row.Value,
+			Color:      row.Color,
 		})
 	}
 

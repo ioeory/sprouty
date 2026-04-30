@@ -37,6 +37,9 @@ import { pickCategoryDisplayName } from '../lib/categoryDisplay';
 
 interface CategoryStat {
   name: string;
+  name_zh?: string;
+  name_en?: string;
+  category_id?: string;
   value: number;
   color: string;
 }
@@ -217,6 +220,22 @@ export default function Dashboard() {
   }, [currentLedger, ledgers]);
 
   const tagDisplayGroups = React.useMemo(() => mergeTagsByNormalizedName(tagFlat), [tagFlat]);
+
+  /** Recompute slice labels when UI language changes (summary.name is request-locale snapshot). */
+  const spendingChartData = React.useMemo(() => {
+    const bundle =
+      groupBy === 'category'
+        ? summary?.category_stats
+        : groupBy === 'project'
+          ? summary?.project_stats
+          : summary?.ledger_stats;
+    const raw = bundle || [];
+    if (groupBy !== 'category') return raw;
+    return raw.map((d) => ({
+      ...d,
+      name: pickCategoryDisplayName(i18n.language, d.name_zh, d.name_en) || d.name,
+    }));
+  }, [summary, groupBy, i18n.language]);
 
   const load = async (ledger: Ledger) => {
     try {
@@ -654,13 +673,7 @@ export default function Dashboard() {
           />
           <div className="mt-4">
             <SpendingChart
-              data={
-                (groupBy === 'category'
-                  ? summary?.category_stats
-                  : groupBy === 'project'
-                    ? summary?.project_stats
-                    : summary?.ledger_stats) || []
-              }
+              data={spendingChartData}
               totalLabel={totalLabel}
               emptyTitle={
                 period === 'month'

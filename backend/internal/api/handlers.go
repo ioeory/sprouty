@@ -944,23 +944,27 @@ func GetDashboardSummary(c *gin.Context) {
 
 	// --- Pie slices (all three dimensions computed in parallel) ---
 	type PieStat struct {
-		Name  string  `json:"name"`
-		Value float64 `json:"value"`
-		Color string  `json:"color"`
+		Name         string  `json:"name"`
+		NameZh       string  `json:"name_zh,omitempty"`
+		NameEn       string  `json:"name_en,omitempty"`
+		CategoryID   string  `json:"category_id,omitempty"`
+		Value        float64 `json:"value"`
+		Color        string  `json:"color"`
 	}
 
 	// By category (group by id so bilingual names don’t split one category)
 	catStats := []PieStat{}
 	{
 		type catPieRaw struct {
-			NameZh string  `gorm:"column:name_zh"`
-			NameEn string  `gorm:"column:name_en"`
-			Value  float64 `gorm:"column:value"`
-			Color  string  `gorm:"column:color"`
+			CategoryID uuid.UUID `gorm:"column:category_id"`
+			NameZh     string    `gorm:"column:name_zh"`
+			NameEn     string    `gorm:"column:name_en"`
+			Value      float64   `gorm:"column:value"`
+			Color      string    `gorm:"column:color"`
 		}
 		var raw []catPieRaw
 		q := service.DB.Model(&models.Transaction{}).
-			Select("categories.name_zh as name_zh, categories.name_en as name_en, SUM(transactions.amount) as value, MAX(categories.color) as color").
+			Select("categories.id as category_id, categories.name_zh as name_zh, categories.name_en as name_en, SUM(transactions.amount) as value, MAX(categories.color) as color").
 			Joins("JOIN categories ON transactions.category_id = categories.id").
 			Where("transactions.ledger_id IN ? AND transactions.type = 'expense'", ledgerIDs)
 		q = applyWindow(q, "transactions.date")
@@ -971,9 +975,12 @@ func GetDashboardSummary(c *gin.Context) {
 		appLoc := Locale(c)
 		for _, row := range raw {
 			catStats = append(catStats, PieStat{
-				Name:  service.PickCategoryDisplayName(appLoc, row.NameZh, row.NameEn),
-				Value: row.Value,
-				Color: row.Color,
+				Name:       service.PickCategoryDisplayName(appLoc, row.NameZh, row.NameEn),
+				NameZh:     row.NameZh,
+				NameEn:     row.NameEn,
+				CategoryID: row.CategoryID.String(),
+				Value:      row.Value,
+				Color:      row.Color,
 			})
 		}
 	}
