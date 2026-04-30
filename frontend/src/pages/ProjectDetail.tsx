@@ -9,6 +9,10 @@ import {
   Loader2,
   Calendar,
   PieChart as PieChartIcon,
+  Plus,
+  Trash2,
+  ArrowDown,
+  ArrowUp,
 } from 'lucide-react';
 import api from '../api/client';
 import {
@@ -18,12 +22,15 @@ import {
   EmptyState,
   Badge,
   CategoryIcon,
+  Modal,
   cn,
 } from '../components/ui';
 import SpendingChart from '../components/SpendingChart';
 import ProjectFormModal from '../components/ProjectFormModal';
 import { pickCategoryDisplayName } from '../lib/categoryDisplay';
 import ProjectBudgetModal from '../components/ProjectBudgetModal';
+import AddRecordModal from '../components/AddRecordModal';
+import { useLayout } from '../components/AppLayout';
 
 interface ProjectSummary {
   id: string;
@@ -56,6 +63,23 @@ interface CatStat {
   color: string;
 }
 
+interface TxTag {
+  id: string;
+  name: string;
+  color: string;
+  exclude_from_stats: boolean;
+}
+
+interface Category {
+  id: string;
+  name: string;
+  name_zh?: string;
+  name_en?: string;
+  icon: string;
+  color: string;
+  type: string;
+}
+
 interface Transaction {
   id: string;
   amount: number;
@@ -63,18 +87,60 @@ interface Transaction {
   category_id: string;
   note: string;
   date: string;
+  created_at?: string;
+  ledger_id?: string;
+  project_id?: string | null;
+  installment_group_id?: string;
+  tag_refs?: TxTag[];
+}
+
+const PAGE_SIZE = 50;
+
+function canMutateTransaction(tx: Transaction, fallbackLedgerId: string, mutableIds: Set<string>): boolean {
+  const lid = tx.ledger_id || fallbackLedgerId;
+  return mutableIds.has(lid);
 }
 
 export default function ProjectDetail() {
   const { t, i18n } = useTranslation('projects');
+  const { t: tTx } = useTranslation('transactions');
+  const { t: tCommon } = useTranslation('common');
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { ledgers } = useLayout();
+
   const [summary, setSummary] = useState<ProjectSummary | null>(null);
   const [catStats, setCatStats] = useState<CatStat[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [txs, setTxs] = useState<Transaction[]>([]);
+  const [txTotal, setTxTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [txLoading, setTxLoading] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editingBudget, setEditingBudget] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [editingTx, setEditingTx] = useState<Transaction | null>(null);
+  const [deleting, setDeleting] = useState<Transaction | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  const mutableLedgerIds = useMemo(() => new Set(ledgers.map((l) => l.id)), [ledgers]);
+
+  const ledgerForTx = useMemo(() => {
+    if (!summary) return '';
+    if (summary.budget?.mode !== 'none' && summary.budget?.ledger_id) return summary.budget.ledger_id;
+    return summary.ledger_id;
+  }, [summary]);
+
+  const categoryMap = useMemo(() => {
+    const m: Record<string, Category> = {};
+    categories.forEach((c) => {
+      m[c.id] = c;
+    });
+    return m;
+  }, [categories]);
+
+  const categoryLabel = (c: Category | undefined) =>
+    (c && (pickCategoryDisplayName(i18n.language, c.name_zh, c.name_en) || c.name)) || '';
 
   const chartData = useMemo(
     () =>
@@ -93,25 +159,9 @@ export default function ProjectDetail() {
       const data = sumRes.data;
       setSummary(data.project);
       setCatStats(data.category_stats || []);
-
-      // Prefer the ledger used for budget burn-down when set; else project's home ledger
-      const proj = data.project as ProjectSummary;
-      const ledgerForTx =
-        proj.budget?.mode !== 'none' && proj.budget?.ledger_id
-          ? proj.budget.ledger_id
-          : proj.ledger_id;
-      if (ledgerForTx) {
-        const listRes = await api.get(`/transactions`, {
-          params: { ledger_id: ledgerForTx, limit: 200 },
-        });
-        const items = Array.isArray(listRes.data) ? listRes.data : listRes.data?.items || [];
-        const related = items.filter((t: any) => t.project_id === id);
-        setTxs(related.slice(0, 20));
-      } else {
-        setTxs([]);
-      }
     } catch (err) {
       console.error('Failed to load project detail', err);
+      setSummary(null);
     } finally {
       setLoading(false);
     }
@@ -123,6 +173,82 @@ export default function ProjectDetail() {
     window.addEventListener('sprouts:refresh', refresh);
     return () => window.removeEventListener('sprouts:refresh', refresh);
   }, [id]);
+
+  useEffect(() => {
+    if (!ledgerForTx) {
+      setCategories([]);
+      setTxs([]);
+      setTxTotal(0);
+      return;
+    }
+    let ignore = false;
+    (async () => {
+      try {
+        const [catRes, txRes] = await Promise.all([
+          api.get(`/categories?ledger_id=${ledgerForTx}`),
+          api.get(`/transactions`, {
+            params: { ledger_id: ledgerForTx, project_id: id, limit: PAGE_SIZE, offset: 0 },
+          }),
+        ]);
+        if (ignore) return;
+        setCategories((catRes.data || []) as Category[]);
+        const items: Transaction[] = txRes.data?.items || [];
+        const total: number = txRes.data?.total ?? items.length;
+        setTxs(items);
+        setTxTotal(total);
+      } catch (err) {
+        console.error(err);
+      }
+    })();
+    return () => {
+      ignore = true;
+    };
+  }, [ledgerForTx, id]);
+
+  const loadMore = async () => {
+    if (!id || !ledgerForTx || txLoading || txs.length >= txTotal) return;
+    setTxLoading(true);
+    try {
+      const res = await api.get(`/transactions`, {
+        params: {
+          ledger_id: ledgerForTx,
+          project_id: id,
+          limit: PAGE_SIZE,
+          offset: txs.length,
+        },
+      });
+      const items: Transaction[] = res.data?.items || [];
+      setTxs((prev) => [...prev, ...items]);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setTxLoading(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleting) return;
+    setDeleteLoading(true);
+    try {
+      await api.delete(`/transactions/${deleting.id}`);
+      setDeleting(null);
+      window.dispatchEvent(new CustomEvent('sprouts:refresh'));
+      await load();
+      if (ledgerForTx && id) {
+        const txRes = await api.get(`/transactions`, {
+          params: { ledger_id: ledgerForTx, project_id: id, limit: PAGE_SIZE, offset: 0 },
+        });
+        const items: Transaction[] = txRes.data?.items || [];
+        const total: number = txRes.data?.total ?? items.length;
+        setTxs(items);
+        setTxTotal(total);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
 
   if (loading && !summary) {
     return (
@@ -151,17 +277,21 @@ export default function ProjectDetail() {
 
   return (
     <div className="space-y-5">
-      <div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <button
           onClick={() => navigate('/projects')}
           className="inline-flex items-center gap-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
         >
           <ArrowLeft size={14} /> {t('detailBack')}
         </button>
+        {ledgerForTx && (
+          <Button size="sm" leftIcon={<Plus size={14} />} onClick={() => setShowAdd(true)}>
+            {t('addEntry')}
+          </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Hero card */}
         <Card padding="lg" className="lg:col-span-2">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-start gap-3 min-w-0 flex-1">
@@ -200,7 +330,6 @@ export default function ProjectDetail() {
             </div>
           </div>
 
-          {/* Budget progress */}
           {hasBudget ? (
             <div className="mt-5 space-y-2 pt-5 border-t border-[var(--color-border)]">
               <div className="flex items-baseline justify-between">
@@ -255,7 +384,6 @@ export default function ProjectDetail() {
           )}
         </Card>
 
-        {/* Totals */}
         <Card padding="lg" className="flex flex-col gap-3">
           <CardHeader icon={<Receipt size={16} />} title={t('totalsTitle')} description={t('totalsDesc')} />
           <div className="grid grid-cols-2 gap-3">
@@ -267,13 +395,12 @@ export default function ProjectDetail() {
             </div>
             <div className="p-3 rounded-[var(--radius-md)] bg-[var(--color-surface-muted)]">
               <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider">{t('txCount')}</p>
-              <p className="text-base font-semibold font-tabular text-[var(--color-text)] mt-1">{txs.length}</p>
+              <p className="text-base font-semibold font-tabular text-[var(--color-text)] mt-1">{txTotal}</p>
             </div>
           </div>
         </Card>
       </div>
 
-      {/* Chart + recent */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
         <Card className="lg:col-span-3" padding="lg">
           <CardHeader
@@ -296,34 +423,99 @@ export default function ProjectDetail() {
             />
           </div>
         </Card>
-
-        <Card className="lg:col-span-2" padding="lg">
-          <CardHeader icon={<Receipt size={16} />} title={t('recentTitle')} description={t('recentDesc')} />
-          <div className="mt-3">
-            {txs.length === 0 ? (
-              <EmptyState icon={<Receipt size={18} />} title={t('recentEmpty')} />
-            ) : (
-              <ul className="divide-y divide-[var(--color-border)]">
-                {txs.map((tx) => (
-                  <li key={tx.id} className="flex items-center gap-2 py-2.5">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-[var(--color-text)] truncate">
-                        {tx.note || t('noNote')}
-                      </p>
-                      <p className="text-[11px] text-[var(--color-text-subtle)] font-tabular mt-0.5">
-                        {formatTxDay(tx.date)}
-                      </p>
-                    </div>
-                    <span className={cn('text-sm font-semibold font-tabular shrink-0', tx.type === 'income' ? 'text-[var(--color-success)]' : 'text-[var(--color-text)]')}>
-                      {tx.type === 'income' ? '+' : '-'}¥{tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </Card>
       </div>
+
+      <Card padding="lg">
+        <CardHeader icon={<Receipt size={16} />} title={t('txListTitle')} description={t('txListDesc')} />
+        <div className="mt-3">
+          {txs.length === 0 && !txLoading ? (
+            <EmptyState icon={<Receipt size={18} />} title={t('recentEmpty')} />
+          ) : (
+            <>
+              <ul className="divide-y divide-[var(--color-border)]">
+                {txs.map((tx) => {
+                  const cat = categoryMap[tx.category_id];
+                  const canMut = canMutateTransaction(tx, ledgerForTx, mutableLedgerIds);
+                  return (
+                    <li
+                      key={tx.id}
+                      className="group flex items-center gap-3 py-3 hover:bg-[var(--color-surface-hover)] rounded-[var(--radius-md)] px-2 -mx-2"
+                    >
+                      <CategoryIcon name={cat?.icon} color={cat?.color} size={36} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-[var(--color-text)] truncate flex items-center gap-1.5 flex-wrap">
+                          <span className="font-medium">{categoryLabel(cat) || tTx('uncategorized')}</span>
+                          {tx.installment_group_id && (
+                            <Badge tone="info" className="!text-[10px] !py-0 !px-1.5 font-normal shrink-0">
+                              {tTx('badgeInstallment')}
+                            </Badge>
+                          )}
+                          {tx.type === 'income' ? (
+                            <ArrowUp size={12} className="text-[var(--color-success)]" />
+                          ) : (
+                            <ArrowDown size={12} className="text-[var(--color-text-subtle)]" />
+                          )}
+                        </p>
+                        {tx.note && <p className="text-xs text-[var(--color-text-subtle)] truncate mt-0.5">{tx.note}</p>}
+                        {tx.tag_refs && tx.tag_refs.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {tx.tag_refs.map((tg) => (
+                              <span
+                                key={tg.id}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] bg-[var(--color-surface-muted)] text-[var(--color-text-muted)]"
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: tg.color || '#a78bfa' }} />
+                                {tg.name}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <p className="text-[11px] text-[var(--color-text-subtle)] font-tabular mt-0.5">{formatTxDay(tx.date)}</p>
+                      </div>
+                      <span
+                        className={cn(
+                          'text-sm font-semibold font-tabular shrink-0',
+                          tx.type === 'income' ? 'text-[var(--color-success)]' : 'text-[var(--color-text)]',
+                        )}
+                      >
+                        {tx.type === 'income' ? '+' : '-'}¥
+                        {tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                      <div className="flex items-center gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
+                        <button
+                          type="button"
+                          disabled={!canMut}
+                          title={tTx('edit')}
+                          onClick={() => canMut && setEditingTx(tx)}
+                          className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-subtle)] hover:bg-[var(--color-surface-muted)] disabled:opacity-30"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!canMut}
+                          title={tTx('delete')}
+                          onClick={() => canMut && setDeleting(tx)}
+                          className="w-8 h-8 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-subtle)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] disabled:opacity-30"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+              {txs.length < txTotal && (
+                <div className="mt-3 flex justify-center">
+                  <Button variant="outline" size="sm" loading={txLoading} onClick={() => void loadMore()}>
+                    {t('loadMore')}
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </Card>
 
       {editing && (
         <ProjectFormModal
@@ -348,6 +540,91 @@ export default function ProjectDetail() {
           }}
         />
       )}
+
+      {showAdd && ledgerForTx && id && (
+        <AddRecordModal
+          open
+          ledgerId={ledgerForTx}
+          defaultProjectId={id}
+          onClose={() => setShowAdd(false)}
+          onSuccess={() => {
+            setShowAdd(false);
+            window.dispatchEvent(new CustomEvent('sprouts:refresh'));
+            void load();
+            if (ledgerForTx && id) {
+              void api
+                .get(`/transactions`, {
+                  params: { ledger_id: ledgerForTx, project_id: id, limit: PAGE_SIZE, offset: 0 },
+                })
+                .then((txRes) => {
+                  const items: Transaction[] = txRes.data?.items || [];
+                  const total: number = txRes.data?.total ?? items.length;
+                  setTxs(items);
+                  setTxTotal(total);
+                });
+            }
+          }}
+        />
+      )}
+
+      {editingTx && ledgerForTx && (
+        <AddRecordModal
+          open
+          ledgerId={editingTx.ledger_id || ledgerForTx}
+          initial={{
+            id: editingTx.id,
+            amount: editingTx.amount,
+            type: editingTx.type,
+            category_id: editingTx.category_id,
+            note: editingTx.note,
+            date: editingTx.date,
+            project_id: editingTx.project_id ?? id,
+            tag_ids: editingTx.tag_refs?.map((x) => x.id) ?? [],
+          }}
+          onClose={() => setEditingTx(null)}
+          onSuccess={() => {
+            setEditingTx(null);
+            window.dispatchEvent(new CustomEvent('sprouts:refresh'));
+            void load();
+            if (ledgerForTx && id) {
+              void api
+                .get(`/transactions`, {
+                  params: { ledger_id: ledgerForTx, project_id: id, limit: PAGE_SIZE, offset: 0 },
+                })
+                .then((txRes) => {
+                  const items: Transaction[] = txRes.data?.items || [];
+                  const total: number = txRes.data?.total ?? items.length;
+                  setTxs(items);
+                  setTxTotal(total);
+                });
+            }
+          }}
+        />
+      )}
+
+      <Modal
+        open={!!deleting}
+        onClose={() => !deleteLoading && setDeleting(null)}
+        size="sm"
+        title={tTx('confirmDeleteTitle')}
+        description={tTx('confirmDeleteDesc')}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setDeleting(null)} disabled={deleteLoading}>
+              {tCommon('cancel')}
+            </Button>
+            <Button variant="danger" loading={deleteLoading} onClick={() => void confirmDelete()}>
+              {tCommon('delete')}
+            </Button>
+          </>
+        }
+      >
+        {deleting && (
+          <p className="text-sm text-[var(--color-text)]">
+            {categoryLabel(categoryMap[deleting.category_id]) || tTx('uncategorized')} · ¥{deleting.amount.toFixed(2)}
+          </p>
+        )}
+      </Modal>
     </div>
   );
 }

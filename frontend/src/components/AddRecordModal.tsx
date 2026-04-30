@@ -4,10 +4,13 @@ import { Calendar, ArrowDown, ArrowUp, Loader2, FolderKanban, Tag as TagIcon } f
 import api from '../api/client';
 import { dateInputValueToISO, formatLocalDateForInput } from '../lib/dateLocal';
 import { Button, Modal, CategoryIcon, cn } from './ui';
+import { pickCategoryDisplayName } from '../lib/categoryDisplay';
 
 interface Category {
   id: string;
   name: string;
+  name_zh?: string;
+  name_en?: string;
   icon: string;
   color: string;
   type: string;
@@ -33,6 +36,8 @@ interface Props {
   ledgerId: string;
   onClose: () => void;
   onSuccess: () => void;
+  /** When creating a row, pre-select this project (e.g. project detail / FAB on project route). */
+  defaultProjectId?: string;
   initial?: {
     id?: string;
     amount?: number;
@@ -45,8 +50,8 @@ interface Props {
   };
 }
 
-export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, initial }: Props) {
-  const { t } = useTranslation('modals');
+export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, initial, defaultProjectId }: Props) {
+  const { t, i18n } = useTranslation('modals');
   const { t: tc } = useTranslation('common');
   const isEdit = !!initial?.id;
   const [amount, setAmount] = useState(initial?.amount?.toString() ?? '');
@@ -127,18 +132,51 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
     };
   }, [ledgerId]);
 
+  // When the modal opens, sync form state from `initial` / `defaultProjectId` (parent may pass new objects each render).
   useEffect(() => {
     if (!open) return;
-    setDate(
-      initial?.date ? formatLocalDateForInput(new Date(initial.date)) : formatLocalDateForInput(new Date()),
-    );
-    if (!initial?.id) {
+    const editing = !!initial?.id;
+    if (editing) {
+      setAmount(initial?.amount != null ? String(initial.amount) : '');
+      setType((initial?.type as string) || 'expense');
+      setSelectedCategory(initial?.category_id ?? '');
+      setNote(initial?.note ?? '');
+      setDate(
+        initial?.date ? formatLocalDateForInput(new Date(initial.date)) : formatLocalDateForInput(new Date()),
+      );
+      setProjectId((initial?.project_id ?? '').toString());
+      setSelectedTagIds(initial?.tag_ids ?? []);
+      setInstallmentEnabled(false);
+      setInstallmentMonths('3');
+      setInstallmentMode('equal');
+      setInstallmentCustom('');
+    } else {
+      setAmount('');
+      setType('expense');
+      setNote('');
+      setDate(formatLocalDateForInput(new Date()));
+      const pid = `${initial?.project_id ?? ''}`.trim() || `${defaultProjectId ?? ''}`.trim();
+      setProjectId(pid);
+      setSelectedCategory(initial?.category_id ?? '');
+      setSelectedTagIds(initial?.tag_ids ?? []);
       setInstallmentEnabled(false);
       setInstallmentMonths('3');
       setInstallmentMode('equal');
       setInstallmentCustom('');
     }
-  }, [open, initial?.date, initial?.id]);
+    setError('');
+  }, [
+    open,
+    initial?.id,
+    initial?.amount,
+    initial?.type,
+    initial?.category_id,
+    initial?.note,
+    initial?.date,
+    initial?.project_id,
+    initial?.tag_ids,
+    defaultProjectId,
+  ]);
 
   const toggleTag = (tagId: string) => {
     setSelectedTagIds((prev) =>
@@ -384,7 +422,7 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
                   >
                     <CategoryIcon name={cat.icon} color={cat.color} size={32} />
                     <span className="text-[11px] font-medium text-[var(--color-text)] truncate w-full text-center">
-                      {cat.name}
+                      {pickCategoryDisplayName(i18n.language, cat.name_zh, cat.name_en) || cat.name}
                     </span>
                   </button>
                 );

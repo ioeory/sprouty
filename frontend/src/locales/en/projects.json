@@ -52,5 +52,9 @@
   "healthOver": "Over",
   "healthWarn": "Tight",
   "healthOk": "Healthy",
-  "remainingYuan": "Left ¥{{amount}}"
+  "remainingYuan": "Left ¥{{amount}}",
+  "addEntry": "Add entry",
+  "txListTitle": "Project entries",
+  "txListDesc": "View, edit, or delete transactions linked to this project",
+  "loadMore": "Load more"
 }

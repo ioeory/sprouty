@@ -1,15 +1,19 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 export type ThemeMode = 'auto' | 'light' | 'dark';
+export type ThemePalette = 'default' | 'green';
 
 interface ThemeContextValue {
   mode: ThemeMode;
   setMode: (m: ThemeMode) => void;
   resolved: 'light' | 'dark';
+  palette: ThemePalette;
+  setPalette: (p: ThemePalette) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 const STORAGE_KEY = 'sprouts_theme';
+const PALETTE_STORAGE_KEY = 'sprouts_palette';
 
 function readInitialMode(): ThemeMode {
   if (typeof window === 'undefined') return 'auto';
@@ -32,13 +36,34 @@ function applyTheme(mode: ThemeMode) {
   }
 }
 
+function readInitialPalette(): ThemePalette {
+  if (typeof window === 'undefined') return 'green';
+  const stored = window.localStorage.getItem(PALETTE_STORAGE_KEY);
+  if (stored === 'default' || stored === 'green') return stored;
+  return 'green';
+}
+
+function applyPalette(palette: ThemePalette) {
+  const root = document.documentElement;
+  if (palette === 'default') {
+    root.removeAttribute('data-palette');
+  } else {
+    root.setAttribute('data-palette', palette);
+  }
+}
+
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [mode, setModeState] = useState<ThemeMode>(() => readInitialMode());
+  const [palette, setPaletteState] = useState<ThemePalette>(() => readInitialPalette());
   const [systemDark, setSystemDark] = useState<boolean>(() => systemPrefersDark());
 
   useEffect(() => {
     applyTheme(mode);
   }, [mode]);
+
+  useEffect(() => {
+    applyPalette(palette);
+  }, [palette]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return;
@@ -53,12 +78,20 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setModeState(next);
   }, []);
 
+  const setPalette = useCallback((next: ThemePalette) => {
+    window.localStorage.setItem(PALETTE_STORAGE_KEY, next);
+    setPaletteState(next);
+  }, []);
+
   const resolved = useMemo<'light' | 'dark'>(() => {
     if (mode === 'auto') return systemDark ? 'dark' : 'light';
     return mode;
   }, [mode, systemDark]);
 
-  const value = useMemo(() => ({ mode, setMode, resolved }), [mode, setMode, resolved]);
+  const value = useMemo(
+    () => ({ mode, setMode, resolved, palette, setPalette }),
+    [mode, setMode, resolved, palette, setPalette],
+  );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 };

@@ -52,5 +52,9 @@
   "healthOver": "已超支",
   "healthWarn": "临界",
   "healthOk": "健康",
-  "remainingYuan": "剩余 ¥{{amount}}"
+  "remainingYuan": "剩余 ¥{{amount}}",
+  "addEntry": "记一笔",
+  "txListTitle": "项目流水",
+  "txListDesc": "查看、编辑或删除归属本项目的记录",
+  "loadMore": "加载更多"
 }

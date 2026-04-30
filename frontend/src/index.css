@@ -50,6 +50,28 @@
   --chart-grid: #e4e4e7;
 }
 
+/* Green palette (light) — default site accent when data-palette=green */
+:root[data-palette="green"] {
+  --color-bg: #f4faf7;
+  --color-surface: #ffffff;
+  --color-surface-muted: #ecfdf3;
+  --color-surface-hover: #f0fdf4;
+  --color-border: #d1e7dd;
+  --color-border-strong: #b8e0c8;
+
+  --color-brand: #059669;
+  --color-brand-hover: #047857;
+  --color-brand-soft: #d1fae5;
+  --color-brand-softer: #ecfdf5;
+
+  --color-success: #15803d;
+  --color-success-soft: #f0fdf4;
+  --color-info: #0d9488;
+  --color-info-soft: #ccfbf1;
+
+  --chart-grid: #d1e7dd;
+}
+
 /* Explicit dark theme */
 :root[data-theme="dark"] {
   color-scheme: dark;
@@ -80,6 +102,28 @@
   --color-info-soft: #062c3d;
 
   --chart-grid: #27272a;
+}
+
+/* Green + explicit dark */
+:root[data-theme="dark"][data-palette="green"] {
+  --color-bg: #071510;
+  --color-surface: #0f1a16;
+  --color-surface-muted: #142820;
+  --color-surface-hover: #1a3329;
+  --color-border: #1f3d32;
+  --color-border-strong: #2d5245;
+
+  --color-brand: #34d399;
+  --color-brand-hover: #6ee7b7;
+  --color-brand-soft: #064e3b;
+  --color-brand-softer: #052e24;
+
+  --color-success: #4ade80;
+  --color-success-soft: #052e16;
+  --color-info: #2dd4bf;
+  --color-info-soft: #042f2e;
+
+  --chart-grid: #1f3d32;
 }
 
 /* Auto (no explicit data-theme attribute) -> follow system */
@@ -113,6 +157,35 @@
     --color-info-soft: #062c3d;
 
     --chart-grid: #27272a;
+  }
+
+  :root:not([data-theme])[data-palette="green"] {
+    --color-bg: #071510;
+    --color-surface: #0f1a16;
+    --color-surface-muted: #142820;
+    --color-surface-hover: #1a3329;
+    --color-border: #1f3d32;
+    --color-border-strong: #2d5245;
+
+    --color-text: #fafafa;
+    --color-text-muted: #a1a1aa;
+    --color-text-subtle: #71717a;
+
+    --color-brand: #34d399;
+    --color-brand-hover: #6ee7b7;
+    --color-brand-soft: #064e3b;
+    --color-brand-softer: #052e24;
+
+    --color-success: #4ade80;
+    --color-success-soft: #052e16;
+    --color-danger: #f87171;
+    --color-danger-soft: #3b0e10;
+    --color-warning: #f59e0b;
+    --color-warning-soft: #3a2206;
+    --color-info: #2dd4bf;
+    --color-info-soft: #042f2e;
+
+    --chart-grid: #1f3d32;
   }
 }
 
@@ -178,9 +251,13 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 /* Dark-mode: invert the calendar indicator so it's visible. */
-:root[data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator,
+:root[data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}
+
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme]) input[type="date"]::-webkit-calendar-picker-indicator {
+  :root:not([data-theme]) input[type="date"]::-webkit-calendar-picker-indicator,
+  :root:not([data-theme])[data-palette="green"] input[type="date"]::-webkit-calendar-picker-indicator {
     filter: invert(1);
   }
 }

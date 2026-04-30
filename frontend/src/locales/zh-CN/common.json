@@ -30,5 +30,11 @@
   "theme_auto": "自动",
   "theme_light": "明亮",
   "theme_dark": "暗黑",
+  "appearance": "外观与主题",
+  "appearanceThemeHint": "明暗与「自动」跟随系统。",
+  "palette": "站点配色",
+  "paletteHint": "主色与强调色；仅保存在本机浏览器。",
+  "palette_default": "默认",
+  "palette_green": "自然绿",
   "mainNav": "主导航"
 }

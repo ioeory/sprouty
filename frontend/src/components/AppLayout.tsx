@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Outlet, useNavigate } from 'react-router-dom';
+import { Outlet, useNavigate, useMatch } from 'react-router-dom';
 import {
   LayoutDashboard,
   Receipt,
@@ -21,6 +21,7 @@ import {
 import { Sidebar, type NavItem, Button, ThemeToggle, Modal, Input, cn } from './ui';
 import BotIntegrationModal from './BotIntegrationModal';
 import AddRecordModal from './AddRecordModal';
+import AppearancePopover from './AppearancePopover';
 import api from '../api/client';
 import i18n, { setAppLocale } from '../i18n';
 
@@ -67,11 +68,15 @@ const SIDEBAR_COLLAPSED_KEY = 'sprouts_sidebar_collapsed';
 export default function AppLayout() {
   const { t } = useTranslation(['nav', 'common', 'ledger']);
   const navigate = useNavigate();
+  const projectRouteMatch = useMatch('/projects/:id');
   const [ledgers, setLedgers] = useState<Ledger[]>([]);
   const [currentLedger, setCurrentLedgerState] = useState<Ledger | null>(null);
   const [user, setUser] = useState<any>(null);
   const [showBot, setShowBot] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  /** When opening FAB from a project detail URL, use budget/home ledger + default project */
+  const [fabAddLedgerId, setFabAddLedgerId] = useState<string | null>(null);
+  const [fabAddProjectId, setFabAddProjectId] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
@@ -84,6 +89,35 @@ export default function AppLayout() {
   const [renameSaving, setRenameSaving] = useState(false);
   const [renameErr, setRenameErr] = useState('');
   const [renameDefaultBudget, setRenameDefaultBudget] = useState('');
+
+  const openAddRecordFromFab = React.useCallback(() => {
+    if (!currentLedger) return;
+    const pid = projectRouteMatch?.params?.id;
+    if (!pid) {
+      setFabAddLedgerId(null);
+      setFabAddProjectId(null);
+      setShowAdd(true);
+      return;
+    }
+    void (async () => {
+      try {
+        const { data } = await api.get(`/projects/${pid}/summary`);
+        const proj = data.project as {
+          ledger_id: string;
+          budget?: { mode: string; ledger_id?: string };
+        };
+        const lid =
+          proj.budget?.mode !== 'none' && proj.budget?.ledger_id ? proj.budget.ledger_id : proj.ledger_id;
+        setFabAddLedgerId(lid || null);
+        setFabAddProjectId(pid);
+        setShowAdd(true);
+      } catch {
+        setFabAddLedgerId(null);
+        setFabAddProjectId(null);
+        setShowAdd(true);
+      }
+    })();
+  }, [currentLedger, projectRouteMatch?.params?.id]);
 
   const persistAppLocale = React.useCallback(async (lng: 'zh-CN' | 'en') => {
     setAppLocale(lng);
@@ -214,7 +248,7 @@ export default function AppLayout() {
         ledgers,
         setCurrentLedger,
         refreshLedgers,
-        openAddRecord: () => setShowAdd(true),
+        openAddRecord: openAddRecordFromFab,
         user,
       }}
     >
@@ -340,7 +374,10 @@ export default function AppLayout() {
             </div>
 
             <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-              <ThemeToggle className="hidden md:inline-flex" compact />
+              <div className="hidden md:flex items-center gap-1">
+                <AppearancePopover />
+                <ThemeToggle compact />
+              </div>
               <div
                 className="flex items-center gap-0.5 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-0.5 shrink-0"
                 role="group"
@@ -377,7 +414,7 @@ export default function AppLayout() {
                 title={t('common:record')}
                 aria-label={t('common:record')}
                 leftIcon={<Plus size={18} strokeWidth={2.25} className="sm:size-[14px]" />}
-                onClick={() => setShowAdd(true)}
+                onClick={() => openAddRecordFromFab()}
                 disabled={!currentLedger}
                 className="shrink-0 max-sm:h-9 max-sm:w-9 max-sm:min-w-9 max-sm:px-0 max-sm:gap-0 max-sm:justify-center"
               >
@@ -504,10 +541,17 @@ export default function AppLayout() {
         {showAdd && currentLedger && (
           <AddRecordModal
             open
-            ledgerId={currentLedger.id}
-            onClose={() => setShowAdd(false)}
+            ledgerId={fabAddLedgerId ?? currentLedger.id}
+            defaultProjectId={fabAddProjectId ?? undefined}
+            onClose={() => {
+              setShowAdd(false);
+              setFabAddLedgerId(null);
+              setFabAddProjectId(null);
+            }}
             onSuccess={() => {
               setShowAdd(false);
+              setFabAddLedgerId(null);
+              setFabAddProjectId(null);
               window.dispatchEvent(new CustomEvent('sprouts:refresh'));
             }}
           />

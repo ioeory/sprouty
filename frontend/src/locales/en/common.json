@@ -30,5 +30,11 @@
   "theme_auto": "Auto",
   "theme_light": "Light",
   "theme_dark": "Dark",
+  "appearance": "Appearance",
+  "appearanceThemeHint": "Light / dark / auto follows the system.",
+  "palette": "Accent palette",
+  "paletteHint": "Brand and accent colors; saved in this browser only.",
+  "palette_default": "Default",
+  "palette_green": "Nature green",
   "mainNav": "Main navigation"
 }

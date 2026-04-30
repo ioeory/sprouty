@@ -387,6 +387,35 @@ func GetTransactions(c *gin.Context) {
 
 	query := service.DB.Model(&models.Transaction{}).Where("ledger_id IN ?", ledgerIDs)
 
+	if pidStr := strings.TrimSpace(c.Query("project_id")); pidStr != "" {
+		projectID, err := uuid.Parse(pidStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid project_id"})
+			return
+		}
+		var proj models.Project
+		if err := service.DB.First(&proj, "id = ?", projectID).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "project not found"})
+			return
+		}
+		if !userCanAccessLedger(userID, proj.LedgerID) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "no access to this project"})
+			return
+		}
+		inScope := false
+		for _, lid := range ledgerIDs {
+			if lid == proj.LedgerID {
+				inScope = true
+				break
+			}
+		}
+		if !inScope {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "project does not belong to this ledger scope"})
+			return
+		}
+		query = query.Where("project_id = ?", projectID)
+	}
+
 	if t := c.Query("type"); t != "" {
 		query = query.Where("type = ?", t)
 	}
