@@ -106,6 +106,8 @@ func (t *TelegramAdapter) handleUpdate(update tgbotapi.Update) {
 			t.handleBind(msg)
 		case "status":
 			t.handleStatus(msg)
+		case "install", "fenqi":
+			t.handleInstallment(msg)
 		default:
 			t.sendReply(msg.Chat.ID, "Unknown command. Use /start for help.")
 		}
@@ -130,7 +132,13 @@ func (t *TelegramAdapter) handleStart(msg *tgbotapi.Message) {
 		"   或手动发送 /bind 123456\n\n" +
 		"绑定后直接发送消息即可记账，例如：\n" +
 		"  午餐 50\n" +
-		"  50 购物 新鞋"
+		"  50 购物 新鞋\n\n" +
+		"等额分期（多笔支出、同一分期组）：\n" +
+		"  /install <期数> <总金额> <分类或关键字…>\n" +
+		"  与发消息记账相同，可写账本关键字、`昨天`/`今天`、括号备注、`l:标签名`。\n" +
+		"  示例：/install 6 1800 餐饮\n" +
+		"  示例：/fenqi 12 12000 昨天 数码 (新手机) l:报销\n\n" +
+		"Installment (equal split): /install <months> <total> <category…> — alias /fenqi"
 	t.sendReply(msg.Chat.ID, helpText)
 }
 
@@ -189,6 +197,131 @@ func (t *TelegramAdapter) handleStatus(msg *tgbotapi.Message) {
 		return
 	}
 	t.sendReply(msg.Chat.ID, "Status: Linked ✅")
+}
+
+// handleInstallment creates equal-split expense installments (same installment_group_id as Web).
+func (t *TelegramAdapter) handleInstallment(msg *tgbotapi.Message) {
+	var conn models.UserConnection
+	if err := t.db.Where("platform = ? AND external_id = ?", "telegram", strconv.FormatInt(msg.Chat.ID, 10)).First(&conn).Error; err != nil {
+		t.sendReply(msg.Chat.ID, "账号未绑定，请先 /bind [PIN] 或在 Web 端生成 PIN 后一键绑定。")
+		return
+	}
+
+	args := strings.Fields(strings.TrimSpace(msg.CommandArguments()))
+	if len(args) < 3 {
+		t.sendReply(msg.Chat.ID, "用法：/install <期数> <总金额> <分类或关键字…>\n"+
+			"例：/install 6 1800 餐饮\n"+
+			"与发消息记账相同，支持账本关键字、日期、括号备注、`l:标签`。\n"+
+			"Alias: /fenqi …")
+		return
+	}
+
+	months, err := strconv.Atoi(args[0])
+	if err != nil || months < 2 || months > 60 {
+		t.sendReply(msg.Chat.ID, "期数须为 2–60 的整数。")
+		return
+	}
+	total, err := strconv.ParseFloat(args[1], 64)
+	if err != nil || total <= 0 {
+		t.sendReply(msg.Chat.ID, "总金额须为正数。")
+		return
+	}
+
+	rest := strings.Join(args[2:], " ")
+	ledgerKWMap := t.loadLedgerKeywordMap(conn.UserID)
+	pr := ParseMessage(rest, time.Now(), ledgerKWMap)
+	if pr.Type != "expense" {
+		t.sendReply(msg.Chat.ID, "分期仅支持支出分类，请勿使用收入类标记。")
+		return
+	}
+	if strings.TrimSpace(pr.CategoryHint) == "" {
+		t.sendReply(msg.Chat.ID, "请写上分类或关键字（在金额后面的整段描述）。")
+		return
+	}
+
+	var ledgerID uuid.UUID
+	if pr.LedgerHint != "" {
+		if lid, err := uuid.Parse(pr.LedgerHint); err == nil {
+			ledgerID = lid
+		}
+	}
+	if ledgerID == uuid.Nil {
+		var lu models.LedgerUser
+		if err := t.db.Where("user_id = ?", conn.UserID).First(&lu).Error; err != nil {
+			t.sendReply(msg.Chat.ID, "未找到账本，请先在 Web 端创建一个账本。")
+			return
+		}
+		ledgerID = lu.LedgerID
+	}
+
+	preferEn := false
+	var acct models.User
+	if err := t.db.Select("preferred_locale").First(&acct, "id = ?", conn.UserID).Error; err == nil {
+		preferEn = strings.HasPrefix(strings.ToLower(strings.TrimSpace(acct.PreferredLocale)), "en")
+	}
+	category, matched := t.resolveCategory(ledgerID, pr.CategoryHint, "expense", preferEn)
+	if !matched {
+		t.sendReply(msg.Chat.ID, t.noCategoryReply(ledgerID, pr.CategoryHint, preferEn))
+		return
+	}
+
+	var tagIDs []uuid.UUID
+	var attachedNames []string
+	var createdTagNames []string
+	for _, name := range pr.TagHints {
+		tag, created, err := api.EnsureTag(ledgerID, name)
+		if err != nil {
+			log.Printf("bot install: ensure tag %q failed: %v", name, err)
+			continue
+		}
+		tagIDs = append(tagIDs, tag.ID)
+		attachedNames = append(attachedNames, tag.Name)
+		if created {
+			createdTagNames = append(createdTagNames, tag.Name)
+		}
+	}
+
+	noteBase := strings.TrimSpace(pr.Note)
+	loc := "zh"
+	if preferEn {
+		loc = "en"
+	}
+	catLabel := service.PickCategoryDisplayName(loc, category.NameZh, category.NameEn)
+	if noteBase == pr.CategoryHint || noteBase == strings.TrimSpace(category.NameZh) || noteBase == strings.TrimSpace(category.NameEn) || noteBase == catLabel {
+		noteBase = ""
+	}
+
+	gid, _, execErr := api.ExecInstallment(t.db, conn.UserID, api.InstallmentCreateParams{
+		Amount:     total,
+		CategoryID: category.ID,
+		LedgerID:   ledgerID,
+		Note:       noteBase,
+		Date:       pr.Date,
+		Months:     months,
+		Mode:       "equal",
+		TagIDs:     tagIDs,
+	})
+	if execErr != nil {
+		log.Printf("bot install: ExecInstallment failed: %v", execErr)
+		t.sendReply(msg.Chat.ID, "创建分期失败："+execErr.Error())
+		return
+	}
+
+	var ledger models.Ledger
+	_ = t.db.First(&ledger, "id = ?", ledgerID).Error
+	per := total / float64(months)
+	lines := []string{
+		fmt.Sprintf("✅ 已创建分期：共 ¥%.2f · %d 期 · 每期约 ¥%.2f · %s", total, months, per, catLabel),
+		fmt.Sprintf("分期组 ID：%s", gid.String()),
+		fmt.Sprintf("首期日期：%s · 账本：%s", pr.Date.Format("2006-01-02"), ledger.Name),
+	}
+	if len(attachedNames) > 0 {
+		lines = append(lines, "标签："+strings.Join(attachedNames, ", "))
+	}
+	if len(createdTagNames) > 0 {
+		lines = append(lines, "🆕 新建标签："+strings.Join(createdTagNames, ", "))
+	}
+	t.sendReply(msg.Chat.ID, strings.Join(lines, "\n"))
 }
 
 func (t *TelegramAdapter) handlePlainMessage(msg *tgbotapi.Message) {

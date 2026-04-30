@@ -48,6 +48,120 @@ func addMonthsKeepDay(t time.Time, add int, loc *time.Location) time.Time {
 	return time.Date(first.Year(), first.Month(), day, t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), loc)
 }
 
+// InstallmentCreateParams is shared by the REST handler and the Telegram bot.
+type InstallmentCreateParams struct {
+	Amount     float64
+	CategoryID uuid.UUID
+	LedgerID   uuid.UUID
+	Note       string
+	Date       time.Time // zero = now
+	Months     int
+	Mode       string // "equal" | "custom"
+	Amounts    []float64
+	TagIDs     []uuid.UUID
+}
+
+// ExecInstallment creates n linked expense rows in one DB transaction.
+func ExecInstallment(db *gorm.DB, userID uuid.UUID, p InstallmentCreateParams) (groupID uuid.UUID, out []gin.H, err error) {
+	if p.Months < 2 || p.Months > 60 {
+		return uuid.Nil, nil, fmt.Errorf("months must be between 2 and 60")
+	}
+	if p.Amount <= 0 {
+		return uuid.Nil, nil, fmt.Errorf("amount must be positive")
+	}
+	if !userCanAccessLedger(userID, p.LedgerID) {
+		return uuid.Nil, nil, fmt.Errorf("forbidden")
+	}
+	var cat models.Category
+	if err := db.Where("id = ? AND ledger_id = ?", p.CategoryID, p.LedgerID).First(&cat).Error; err != nil {
+		return uuid.Nil, nil, fmt.Errorf("category does not belong to this ledger")
+	}
+	if cat.Type != "expense" {
+		return uuid.Nil, nil, fmt.Errorf("installment applies to expense categories only")
+	}
+
+	loc := time.Now().Location()
+	d0 := p.Date
+	if d0.IsZero() {
+		d0 = time.Now()
+	}
+	d0 = d0.In(loc)
+
+	mode := strings.ToLower(strings.TrimSpace(p.Mode))
+	if mode == "" {
+		mode = "equal"
+	}
+
+	var parts []float64
+	switch mode {
+	case "equal":
+		parts = splitEqualInstallmentCents(p.Amount, p.Months)
+	case "custom":
+		if len(p.Amounts) != p.Months {
+			return uuid.Nil, nil, fmt.Errorf("amounts length must equal months")
+		}
+		var sum float64
+		for _, a := range p.Amounts {
+			if a <= 0 {
+				return uuid.Nil, nil, fmt.Errorf("each custom amount must be positive")
+			}
+			sum += a
+		}
+		if math.Abs(sum-p.Amount) > 0.02 {
+			return uuid.Nil, nil, fmt.Errorf("amounts must sum to total (got %.2f, want %.2f)", sum, p.Amount)
+		}
+		parts = p.Amounts
+	default:
+		return uuid.Nil, nil, fmt.Errorf("mode must be equal or custom")
+	}
+
+	gid := uuid.New()
+	noteBase := strings.TrimSpace(p.Note)
+	out = make([]gin.H, 0, p.Months)
+
+	txErr := db.Transaction(func(tx *gorm.DB) error {
+		for i := 0; i < p.Months; i++ {
+			dt := addMonthsKeepDay(d0, i, loc)
+			note := noteBase
+			if p.Months > 1 {
+				if note != "" {
+					note = fmt.Sprintf("%s (%d/%d)", noteBase, i+1, p.Months)
+				} else {
+					note = fmt.Sprintf("%d/%d", i+1, p.Months)
+				}
+			}
+			tr := models.Transaction{
+				Amount:             parts[i],
+				Type:               "expense",
+				CategoryID:         p.CategoryID,
+				LedgerID:           p.LedgerID,
+				UserID:             userID,
+				Note:               note,
+				Date:               dt,
+				InstallmentGroupID: &gid,
+			}
+			if err := tx.Create(&tr).Error; err != nil {
+				return err
+			}
+			if len(p.TagIDs) > 0 {
+				if err := ReplaceTransactionTags(tx, tr.ID, p.LedgerID, p.TagIDs); err != nil {
+					return err
+				}
+			}
+			var loaded models.Transaction
+			if err := tx.First(&loaded, "id = ?", tr.ID).Error; err != nil {
+				return err
+			}
+			out = append(out, withTransactionTagsDB(tx, loaded))
+		}
+		return nil
+	})
+	if txErr != nil {
+		return uuid.Nil, nil, txErr
+	}
+	return gid, out, nil
+}
+
 // CreateInstallment creates n expense transactions sharing installment_group_id.
 func CreateInstallment(c *gin.Context) {
 	userUUID, err := currentUserID(c)
@@ -71,114 +185,29 @@ func CreateInstallment(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if req.Months < 2 || req.Months > 60 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "months must be between 2 and 60"})
-		return
-	}
-	if req.Amount <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "amount must be positive"})
-		return
-	}
-	if !userCanAccessLedger(userUUID, req.LedgerID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
-		return
-	}
 
-	var cat models.Category
-	if err := service.DB.Where("id = ? AND ledger_id = ?", req.CategoryID, req.LedgerID).First(&cat).Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "category does not belong to this ledger"})
-		return
-	}
-	if cat.Type != "expense" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "installment applies to expense categories only"})
-		return
-	}
-
-	loc := time.Now().Location()
-	if req.Date.IsZero() {
-		req.Date = time.Now()
-	}
-	req.Date = req.Date.In(loc)
-
-	mode := strings.ToLower(strings.TrimSpace(req.Mode))
-	if mode == "" {
-		mode = "equal"
-	}
-
-	var parts []float64
-	switch mode {
-	case "equal":
-		parts = splitEqualInstallmentCents(req.Amount, req.Months)
-	case "custom":
-		if len(req.Amounts) != req.Months {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "amounts length must equal months"})
-			return
+	gid, out, execErr := ExecInstallment(service.DB, userUUID, InstallmentCreateParams{
+		Amount:     req.Amount,
+		CategoryID: req.CategoryID,
+		LedgerID:   req.LedgerID,
+		Note:       req.Note,
+		Date:       req.Date,
+		Months:     req.Months,
+		Mode:       req.Mode,
+		Amounts:    req.Amounts,
+		TagIDs:     req.TagIDs,
+	})
+	if execErr != nil {
+		st := http.StatusBadRequest
+		if execErr.Error() == "forbidden" {
+			st = http.StatusForbidden
 		}
-		var sum float64
-		for _, a := range req.Amounts {
-			if a <= 0 {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "each custom amount must be positive"})
-				return
-			}
-			sum += a
-		}
-		if math.Abs(sum-req.Amount) > 0.02 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("amounts must sum to total (got %.2f, want %.2f)", sum, req.Amount)})
-			return
-		}
-		parts = req.Amounts
-	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "mode must be equal or custom"})
-		return
-	}
-
-	groupID := uuid.New()
-	noteBase := strings.TrimSpace(req.Note)
-	out := make([]gin.H, 0, req.Months)
-
-	if txErr := service.DB.Transaction(func(tx *gorm.DB) error {
-		for i := 0; i < req.Months; i++ {
-			dt := addMonthsKeepDay(req.Date, i, loc)
-			note := noteBase
-			if req.Months > 1 {
-				if note != "" {
-					note = fmt.Sprintf("%s (%d/%d)", noteBase, i+1, req.Months)
-				} else {
-					note = fmt.Sprintf("%d/%d", i+1, req.Months)
-				}
-			}
-			tr := models.Transaction{
-				Amount:             parts[i],
-				Type:               "expense",
-				CategoryID:         req.CategoryID,
-				LedgerID:           req.LedgerID,
-				UserID:             userUUID,
-				Note:               note,
-				Date:               dt,
-				InstallmentGroupID: &groupID,
-			}
-			if err := tx.Create(&tr).Error; err != nil {
-				return err
-			}
-			if len(req.TagIDs) > 0 {
-				if err := ReplaceTransactionTags(tx, tr.ID, req.LedgerID, req.TagIDs); err != nil {
-					return err
-				}
-			}
-			var loaded models.Transaction
-			if err := tx.First(&loaded, "id = ?", tr.ID).Error; err != nil {
-				return err
-			}
-			out = append(out, withTransactionTagsDB(tx, loaded))
-		}
-		return nil
-	}); txErr != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": txErr.Error()})
+		c.JSON(st, gin.H{"error": execErr.Error()})
 		return
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"installment_group_id": groupID,
+		"installment_group_id": gid,
 		"transactions":         out,
 	})
 }
