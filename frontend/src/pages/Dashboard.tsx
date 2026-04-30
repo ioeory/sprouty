@@ -25,6 +25,14 @@ import SpendingChart from '../components/SpendingChart';
 import EditBudgetModal from '../components/EditBudgetModal';
 import { Button, Card, CardHeader, EmptyState, Badge, CategoryIcon } from '../components/ui';
 import { useLayout, type Ledger } from '../components/AppLayout';
+import {
+  mergeTagsByNormalizedName,
+  togglableTagIds,
+  allTogglableManuallyExcluded,
+  everyMemberDefaultExcluded,
+  type TagWithLedger,
+  type MergedTagGroup,
+} from '../lib/mergeClusterTags';
 
 interface CategoryStat {
   name: string;
@@ -37,6 +45,7 @@ interface TagRef {
   name: string;
   color: string;
   exclude_from_stats: boolean;
+  ledger_id?: string;
 }
 
 interface Summary {
@@ -179,13 +188,29 @@ export default function Dashboard() {
   // "默认排除". Manual tag ids are additive to the defaults.
   const [bypassTagFilter, setBypassTagFilter] = useState(false);
   const [manualExcludeTagIds, setManualExcludeTagIds] = useState<string[]>([]);
-  const [allTags, setAllTags] = useState<TagRef[]>([]);
+  /** Flat tags from cluster fetch (includes ledger_id for merge + tooltips). */
+  const [tagFlat, setTagFlat] = useState<TagWithLedger[]>([]);
 
   const categoryMap = React.useMemo(() => {
     const map: Record<string, Category> = {};
     categories.forEach((c) => (map[c.id] = c));
     return map;
   }, [categories]);
+
+  const ledgerLabelById = React.useMemo(() => {
+    const m: Record<string, string> = {};
+    if (!currentLedger) return m;
+    m[currentLedger.id] = currentLedger.name;
+    (currentLedger.linked_personal || []).forEach((p) => {
+      m[p.id] = p.name;
+    });
+    ledgers.forEach((l) => {
+      if (!m[l.id]) m[l.id] = l.name;
+    });
+    return m;
+  }, [currentLedger, ledgers]);
+
+  const tagDisplayGroups = React.useMemo(() => mergeTagsByNormalizedName(tagFlat), [tagFlat]);
 
   const load = async (ledger: Ledger) => {
     try {
@@ -212,7 +237,20 @@ export default function Dashboard() {
       setCategories(mergeById(catResults.map((r) => r.data || [])));
       const txs = Array.isArray(txRes.data) ? txRes.data : txRes.data?.items || [];
       setRecent(txs.slice(0, 5));
-      setAllTags(mergeById(tagResults.map((r) => r.data || [])));
+      const flatTags: TagWithLedger[] = [];
+      cluster.forEach((lid, i) => {
+        const rows = (tagResults[i]?.data || []) as TagRef[];
+        for (const t of rows) {
+          flatTags.push({
+            id: t.id,
+            name: t.name,
+            color: t.color,
+            exclude_from_stats: t.exclude_from_stats,
+            ledger_id: lid,
+          });
+        }
+      });
+      setTagFlat(flatTags);
     } catch (err) {
       console.error('Failed to load dashboard', err);
     } finally {
@@ -245,6 +283,20 @@ export default function Dashboard() {
     setManualExcludeTagIds((prev) =>
       prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id],
     );
+  };
+
+  const toggleMergedManualExclude = (group: MergedTagGroup) => {
+    const ids = togglableTagIds(group);
+    if (ids.length === 0) return;
+    const allIn = allTogglableManuallyExcluded(group, manualExcludeTagIds);
+    setManualExcludeTagIds((prev) => {
+      if (allIn) {
+        return prev.filter((id) => !ids.includes(id));
+      }
+      const next = new Set(prev);
+      ids.forEach((id) => next.add(id));
+      return Array.from(next);
+    });
   };
 
   if (!currentLedger) {
@@ -500,7 +552,7 @@ export default function Dashboard() {
           <Tag size={12} /> {t('dashboard:tagFilter')}
         </div>
 
-        {allTags.length === 0 ? (
+        {tagFlat.length === 0 ? (
           <p className="text-[11px] text-[var(--color-text-subtle)]">
             {t('dashboard:tagEmptyHint')}
             <a
@@ -528,42 +580,56 @@ export default function Dashboard() {
               {t('dashboard:includeExcluded')}
             </label>
 
-            <div className="h-4 w-px bg-[var(--color-border)] mx-1" />
+            <div className="h-4 w-px bg-[var(--color-border)] mx-1 hidden sm:block" aria-hidden />
 
-            {/* Per-tag toggles: default-excluded tags are disabled (handled by
-                bypass switch), the rest can be manually added to the blocklist. */}
+            {/* Per-tag toggles (merged by normalized name across family cluster). */}
             <div className="flex flex-wrap gap-1.5">
-              {allTags.map((tg) => {
-                const isDefaultExcluded = tg.exclude_from_stats;
-                const isManuallyExcluded = manualExcludeTagIds.includes(tg.id);
-                const effectivelyExcluded = !bypassTagFilter && (isDefaultExcluded || isManuallyExcluded);
+              {tagDisplayGroups.map((group) => {
+                const allDefault = everyMemberDefaultExcluded(group);
+                const togglable = togglableTagIds(group);
+                const mergedManual = allTogglableManuallyExcluded(group, manualExcludeTagIds);
+                const isManuallyExcluded = togglable.length > 0 && mergedManual;
+                const effectivelyExcluded =
+                  !bypassTagFilter &&
+                  group.members.every((m) => m.exclude_from_stats || manualExcludeTagIds.includes(m.id));
+                const tooltipParts = group.members.map(
+                  (m) => `${m.name} · ${ledgerLabelById[m.ledger_id] ?? m.ledger_id}`,
+                );
+                const titleBase =
+                  group.members.length > 1 ? `${tooltipParts.join('；')}\n` : `${tooltipParts[0] ?? ''}\n`;
                 return (
                   <button
-                    key={tg.id}
+                    key={group.key}
                     type="button"
                     onClick={() => {
-                      if (isDefaultExcluded) return; // governed by bypass
-                      toggleManualExcludeTag(tg.id);
+                      if (allDefault) return;
+                      toggleMergedManualExclude(group);
                     }}
-                    disabled={isDefaultExcluded}
+                    disabled={allDefault}
                     title={
-                      isDefaultExcluded
+                      allDefault
                         ? t('dashboard:tagTooltipDefault')
                         : isManuallyExcluded
-                          ? t('dashboard:tagTooltipRestore')
-                          : t('dashboard:tagTooltipExclude')
+                          ? titleBase + t('dashboard:tagTooltipRestore')
+                          : titleBase + t('dashboard:tagTooltipExclude')
                     }
                     className={cn(
                       'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] border transition-colors',
                       effectivelyExcluded
                         ? 'border-dashed border-[var(--color-border)] bg-[var(--color-surface-muted)] text-[var(--color-text-subtle)] line-through'
                         : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)]',
-                      isDefaultExcluded && 'cursor-not-allowed',
+                      allDefault && 'cursor-not-allowed',
                     )}
                   >
-                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: tg.color || '#a78bfa' }} />
-                    {tg.name}
-                    {isDefaultExcluded && <span className="opacity-70">{t('dashboard:tagDefaultSuffix')}</span>}
+                    <span
+                      className="w-1.5 h-1.5 rounded-full shrink-0"
+                      style={{ backgroundColor: group.members[0]?.color || '#a78bfa' }}
+                    />
+                    <span>{group.displayName}</span>
+                    {group.members.length > 1 && (
+                      <span className="text-[9px] opacity-70 tabular-nums">×{group.members.length}</span>
+                    )}
+                    {allDefault && <span className="opacity-70">{t('dashboard:tagDefaultSuffix')}</span>}
                   </button>
                 );
               })}
@@ -683,6 +749,11 @@ export default function Dashboard() {
           open
           ledgerId={currentLedger.id}
           currentBudget={budget}
+          yearMonth={
+            summary?.current_month ??
+            `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
+          }
+          defaultMonthlyBudget={currentLedger.default_monthly_budget ?? null}
           onClose={() => setShowBudget(false)}
           onSuccess={() => load(currentLedger)}
         />

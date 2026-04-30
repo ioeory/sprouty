@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"sprouts-self/backend/internal/models"
+	"sprouts-self/backend/internal/service"
 )
 
 func userCanAccessLedger(db *gorm.DB, userID, ledgerID uuid.UUID) bool {
@@ -100,10 +101,9 @@ func ComputeDigestMetrics(db *gorm.DB, userID, ledgerID uuid.UUID, now time.Time
 	lastOfMonth := firstOfMonth.AddDate(0, 1, 0).Add(-time.Second)
 
 	var totalBudget float64
-	db.Model(&models.Budget{}).
-		Where("ledger_id IN ? AND scope = 'ledger_total' AND year_month = ?", budgetLedgerIDs, ym).
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&totalBudget)
+	for _, lid := range budgetLedgerIDs {
+		totalBudget += service.EffectiveLedgerTotalBudget(db, lid, ym)
+	}
 
 	var monthExpense float64
 	q := db.Model(&models.Transaction{}).

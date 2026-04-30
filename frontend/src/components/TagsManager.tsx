@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, Trash2, Tag as TagIcon, Loader2, EyeOff, Eye } from 'lucide-react';
 import api from '../api/client';
 import { Button, Card, CardHeader, Input, Badge, cn } from './ui';
+import { mergeTagsByNormalizedName, normalizeTagName } from '../lib/mergeClusterTags';
 
 export interface Tag {
   id: string;
@@ -14,6 +15,9 @@ export interface Tag {
 
 interface Props {
   ledgerId: string;
+  /** When set (e.g. family + linked personals), load tags from all ids and show merged names with ledger hint. */
+  clusterLedgerIds?: string[];
+  ledgerLabelById?: Record<string, string>;
 }
 
 // Palette intentionally pastel-first so tag chips stay visually quiet next to
@@ -24,7 +28,7 @@ const TAG_PALETTE = [
   '#22d3ee', '#60a5fa', '#94a3b8', '#f97316',
 ];
 
-export default function TagsManager({ ledgerId }: Props) {
+export default function TagsManager({ ledgerId, clusterLedgerIds, ledgerLabelById }: Props) {
   const { t } = useTranslation('categories');
   const [tags, setTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,11 +38,28 @@ export default function TagsManager({ ledgerId }: Props) {
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState('');
 
+  const cluster = useMemo(() => {
+    if (clusterLedgerIds && clusterLedgerIds.length > 1) return clusterLedgerIds;
+    return null;
+  }, [clusterLedgerIds]);
+
   const load = async () => {
     setLoading(true);
     try {
-      const res = await api.get(`/tags?ledger_id=${ledgerId}`);
-      setTags(res.data || []);
+      if (cluster && cluster.length > 0) {
+        const results = await Promise.all(cluster.map((id) => api.get(`/tags?ledger_id=${id}`)));
+        const flat: Tag[] = [];
+        cluster.forEach((id, i) => {
+          for (const row of results[i]?.data || []) {
+            flat.push({ ...(row as Tag), ledger_id: id });
+          }
+        });
+        setTags(flat);
+      } else {
+        const res = await api.get(`/tags?ledger_id=${ledgerId}`);
+        const rows = (res.data || []) as Tag[];
+        setTags(rows.map((r) => ({ ...r, ledger_id: r.ledger_id || ledgerId })));
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -48,7 +69,46 @@ export default function TagsManager({ ledgerId }: Props) {
 
   useEffect(() => {
     if (ledgerId) load();
-  }, [ledgerId]);
+  }, [ledgerId, cluster?.join(',')]);
+
+  const label = (lid: string) => ledgerLabelById?.[lid] || lid.slice(0, 8);
+
+  /** Expand merged groups to rows: multi-ledger same name → one row per physical tag, sorted. */
+  const displayRows = useMemo(() => {
+    if (!cluster || cluster.length <= 1) {
+      return tags.map((tag) => ({ tag, suffix: '' as string }));
+    }
+    const groups = mergeTagsByNormalizedName(
+      tags.map((t) => ({
+        id: t.id,
+        name: t.name,
+        color: t.color,
+        exclude_from_stats: t.exclude_from_stats,
+        ledger_id: t.ledger_id,
+      })),
+    );
+    const rows: { tag: Tag; suffix: string }[] = [];
+    for (const g of groups) {
+      if (g.members.length <= 1) {
+        const m = g.members[0];
+        const tag = tags.find((x) => x.id === m.id)!;
+        rows.push({ tag, suffix: label(tag.ledger_id) !== label(ledgerId) ? ` · ${label(tag.ledger_id)}` : '' });
+        continue;
+      }
+      for (const m of g.members) {
+        const tag = tags.find((x) => x.id === m.id)!;
+        rows.push({ tag, suffix: ` · ${label(tag.ledger_id)}` });
+      }
+      seenNorm.add(g.key);
+    }
+    rows.sort((a, b) => {
+      const na = normalizeTagName(a.tag.name);
+      const nb = normalizeTagName(b.tag.name);
+      if (na !== nb) return na.localeCompare(nb);
+      return a.tag.name.localeCompare(b.tag.name) || a.tag.ledger_id.localeCompare(b.tag.ledger_id);
+    });
+    return rows;
+  }, [tags, cluster, ledgerId, ledgerLabelById]);
 
   const add = async () => {
     const name = newName.trim();
@@ -57,7 +117,8 @@ export default function TagsManager({ ledgerId }: Props) {
       return;
     }
     // Client-side dup guard so common mistakes don't even round-trip.
-    if (tags.some((tag) => tag.name.toLowerCase() === name.toLowerCase())) {
+    const dupScope = cluster && cluster.length > 1 ? tags.filter((tag) => tag.ledger_id === ledgerId) : tags;
+    if (dupScope.some((tag) => tag.name.toLowerCase() === name.toLowerCase())) {
       setError(t('tagsDuplicate'));
       return;
     }
@@ -70,7 +131,8 @@ export default function TagsManager({ ledgerId }: Props) {
         color: newColor,
         exclude_from_stats: newExclude,
       });
-      setTags([...tags, res.data].sort((a, b) => a.name.localeCompare(b.name)));
+      const created = { ...res.data, ledger_id: (res.data as Tag).ledger_id || ledgerId } as Tag;
+      setTags([...tags, created].sort((a, b) => a.name.localeCompare(b.name)));
       setNewName('');
       setNewExclude(false);
     } catch (err: any) {
@@ -191,7 +253,7 @@ export default function TagsManager({ ledgerId }: Props) {
           </p>
         ) : (
           <ul className="flex flex-wrap gap-2">
-            {tags.map((tag) => (
+            {displayRows.map(({ tag, suffix }) => (
               <li
                 key={tag.id}
                 className={cn(
@@ -213,7 +275,10 @@ export default function TagsManager({ ledgerId }: Props) {
                   }}
                   role="button"
                 />
-                <span className="text-xs">{tag.name}</span>
+                <span className="text-xs">
+                  {tag.name}
+                  {suffix && <span className="text-[var(--color-text-subtle)] opacity-80">{suffix}</span>}
+                </span>
                 <button
                   onClick={() => toggleExclude(tag)}
                   title={tag.exclude_from_stats ? t('tagsToggleExcludeOn') : t('tagsToggleExcludeOff')}

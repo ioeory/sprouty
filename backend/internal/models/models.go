@@ -87,10 +87,11 @@ type OIDCExchange struct {
 // Ledger (Shared or Personal Account Book)
 type Ledger struct {
 	Base
-	Name    string    `gorm:"not null" json:"name"`
-	OwnerID uuid.UUID `gorm:"type:uuid" json:"owner_id"`
-	Type    string    `json:"type"` // "personal", "family"
-	Members []User    `gorm:"many2many:ledger_users;" json:"members"`
+	Name                 string    `gorm:"not null" json:"name"`
+	OwnerID              uuid.UUID `gorm:"type:uuid" json:"owner_id"`
+	Type                 string    `json:"type"` // "personal", "family"
+	DefaultMonthlyBudget *float64  `gorm:"type:decimal(12,2)" json:"default_monthly_budget,omitempty"`
+	Members              []User    `gorm:"many2many:ledger_users;" json:"members"`
 }
 
 // LedgerFamilyLink binds one personal ledger as a sub-ledger under a family ledger.
@@ -165,15 +166,16 @@ type Project struct {
 // Transaction
 type Transaction struct {
 	Base
-	Amount     float64    `gorm:"type:decimal(12,2);not null" json:"amount"`
-	Type       string     `json:"type"` // "expense", "income", "transfer"
-	CategoryID uuid.UUID  `gorm:"type:uuid;index" json:"category_id"`
-	LedgerID   uuid.UUID  `gorm:"type:uuid;index" json:"ledger_id"`
-	UserID     uuid.UUID  `gorm:"type:uuid;index" json:"user_id"`
-	ProjectID  *uuid.UUID `gorm:"type:uuid;index" json:"project_id"`
-	Note       string     `json:"note"`
-	Tags       string     `json:"tags"` // Comma separated tags
-	Date       time.Time  `gorm:"index" json:"date"`
+	Amount               float64    `gorm:"type:decimal(12,2);not null" json:"amount"`
+	Type                 string     `json:"type"` // "expense", "income", "transfer"
+	CategoryID           uuid.UUID  `gorm:"type:uuid;index" json:"category_id"`
+	LedgerID             uuid.UUID  `gorm:"type:uuid;index" json:"ledger_id"`
+	UserID               uuid.UUID  `gorm:"type:uuid;index" json:"user_id"`
+	ProjectID            *uuid.UUID `gorm:"type:uuid;index" json:"project_id"`
+	InstallmentGroupID   *uuid.UUID `gorm:"type:uuid;index" json:"installment_group_id,omitempty"`
+	Note                 string     `json:"note"`
+	Tags                 string     `json:"tags"` // Comma separated tags
+	Date                 time.Time  `gorm:"index" json:"date"`
 }
 
 // Budget

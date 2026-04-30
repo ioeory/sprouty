@@ -40,5 +40,8 @@
   "loadMore": "加载更多 ({{remaining}} 条剩余)",
   "confirmDeleteTitle": "确认删除？",
   "confirmDeleteDesc": "删除后无法恢复",
-  "noNote": "无备注"
+  "noNote": "无备注",
+  "badgeInstallment": "分期",
+  "deleteInstallmentGroupTitle": "删除整组分期流水",
+  "confirmDeleteInstallment": "将删除该分期关联的全部月份记录，确定吗？"
 }

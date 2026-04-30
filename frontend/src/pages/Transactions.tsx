@@ -13,6 +13,7 @@ import {
   Loader2,
   Plus,
   X,
+  Layers,
 } from 'lucide-react';
 import api from '../api/client';
 import { Badge, Button, Card, CategoryIcon, EmptyState, Input, Select, Modal } from '../components/ui';
@@ -38,6 +39,7 @@ interface Transaction {
   date: string;
   created_at?: string;
   ledger_id?: string;
+  installment_group_id?: string;
 }
 
 interface Category {
@@ -463,6 +465,11 @@ export default function Transactions() {
                                   {t('transactions:badgeReadonly')}
                                 </Badge>
                               )}
+                              {tx.installment_group_id && (
+                                <Badge tone="info" className="!text-[10px] !py-0 !px-1.5 font-normal shrink-0">
+                                  {t('transactions:badgeInstallment')}
+                                </Badge>
+                              )}
                               {tx.type === 'income' ? (
                                 <ArrowUp size={12} className="text-[var(--color-success)]" />
                               ) : (
@@ -529,6 +536,28 @@ export default function Transactions() {
                             >
                               <Pencil size={13} />
                             </button>
+                            {tx.installment_group_id && canMutate && (
+                              <button
+                                type="button"
+                                title={t('transactions:deleteInstallmentGroupTitle')}
+                                onClick={async () => {
+                                  if (!window.confirm(t('transactions:confirmDeleteInstallment'))) return;
+                                  setTxFeedback('');
+                                  try {
+                                    await api.delete(`/transactions/installment-group/${tx.installment_group_id}`);
+                                    load(true);
+                                  } catch (err: unknown) {
+                                    const msg =
+                                      (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+                                      t('transactions:deleteFailed');
+                                    setTxFeedback(msg);
+                                  }
+                                }}
+                                className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-subtle)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)]"
+                              >
+                                <Layers size={13} />
+                              </button>
+                            )}
                             <button
                               type="button"
                               disabled={!canMutate}

@@ -92,6 +92,9 @@ func GetLedgers(c *gin.Context) {
 			"updated_at":   l.UpdatedAt,
 			"keywords":     kw,
 		}
+		if l.DefaultMonthlyBudget != nil {
+			h["default_monthly_budget"] = *l.DefaultMonthlyBudget
+		}
 		if l.Type == "family" {
 			if ch, ok := linkedByFamily[l.ID]; ok {
 				h["linked_personal"] = ch
@@ -177,8 +180,10 @@ func UpdateLedger(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Name string  `json:"name" binding:"required"`
-		Type *string `json:"type,omitempty"`
+		Name                      string   `json:"name" binding:"required"`
+		Type                      *string  `json:"type,omitempty"`
+		DefaultMonthlyBudget      *float64 `json:"default_monthly_budget"`
+		ClearDefaultMonthlyBudget bool     `json:"clear_default_monthly_budget"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -204,6 +209,16 @@ func UpdateLedger(c *gin.Context) {
 	}
 
 	updates := map[string]interface{}{"name": newName}
+
+	if req.ClearDefaultMonthlyBudget {
+		updates["default_monthly_budget"] = gorm.Expr("NULL")
+	} else if req.DefaultMonthlyBudget != nil {
+		if *req.DefaultMonthlyBudget < 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "default_monthly_budget must be non-negative"})
+			return
+		}
+		updates["default_monthly_budget"] = *req.DefaultMonthlyBudget
+	}
 
 	if req.Type != nil {
 		newType := strings.TrimSpace(*req.Type)
@@ -244,13 +259,17 @@ func UpdateLedger(c *gin.Context) {
 		meta["type_to"] = ledger.Type
 	}
 	WriteAuditLog(c, &userUUID, "ledger.update", "ledger", strPtr(ledgerID.String()), meta)
-	c.JSON(http.StatusOK, gin.H{
+	resp := gin.H{
 		"id":         ledger.ID,
 		"name":       ledger.Name,
 		"owner_id":   ledger.OwnerID,
 		"type":       ledger.Type,
 		"updated_at": ledger.UpdatedAt,
-	})
+	}
+	if ledger.DefaultMonthlyBudget != nil {
+		resp["default_monthly_budget"] = *ledger.DefaultMonthlyBudget
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // Transaction Handlers
@@ -452,7 +471,7 @@ func transactionJSON(t models.Transaction, tags []models.Tag) gin.H {
 	if tags == nil {
 		tags = []models.Tag{}
 	}
-	return gin.H{
+	h := gin.H{
 		"id":          t.ID,
 		"amount":      t.Amount,
 		"type":        t.Type,
@@ -467,13 +486,21 @@ func transactionJSON(t models.Transaction, tags []models.Tag) gin.H {
 		"updated_at":  t.UpdatedAt,
 		"tag_refs":    tags, // structured many-to-many list -> UI renders chips
 	}
+	if t.InstallmentGroupID != nil {
+		h["installment_group_id"] = *t.InstallmentGroupID
+	}
+	return h
 }
 
 // withTransactionTags hydrates a single transaction (post-create/update) with
 // its tag list. One-off helper; list responses use the bulk LoadTransactionTags.
 func withTransactionTags(t models.Transaction) gin.H {
+	return withTransactionTagsDB(service.DB, t)
+}
+
+func withTransactionTagsDB(db *gorm.DB, t models.Transaction) gin.H {
 	var tags []models.Tag
-	service.DB.Table("transaction_tags").
+	db.Table("transaction_tags").
 		Select("tags.*").
 		Joins("JOIN tags ON tags.id = transaction_tags.tag_id").
 		Where("transaction_tags.transaction_id = ? AND tags.deleted_at IS NULL", t.ID).
@@ -861,13 +888,11 @@ func GetDashboardSummary(c *gin.Context) {
 		return
 	}
 
-	// Budget: always shows the current month's planned amount (yearly/all views
-	// don't change how budgets are set - they're month-scoped by design).
+	// Budget: month ledger_total row if set, else ledger.default_monthly_budget per book.
 	var totalBudget float64
-	service.DB.Model(&models.Budget{}).
-		Where("ledger_id IN ? AND scope = 'ledger_total' AND year_month = ?", budgetLedgerIDs, now.Format("2006-01")).
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&totalBudget)
+	for _, lid := range budgetLedgerIDs {
+		totalBudget += service.EffectiveLedgerTotalBudget(service.DB, lid, currentMonth)
+	}
 
 	// Apply the period window to expense aggregation
 	applyWindow := func(tx *gorm.DB, dateCol string) *gorm.DB {

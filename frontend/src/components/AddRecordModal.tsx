@@ -64,6 +64,10 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
   const [loading, setLoading] = useState(false);
   const [loadingCats, setLoadingCats] = useState(true);
   const [error, setError] = useState('');
+  const [installmentEnabled, setInstallmentEnabled] = useState(false);
+  const [installmentMonths, setInstallmentMonths] = useState('3');
+  const [installmentMode, setInstallmentMode] = useState<'equal' | 'custom'>('equal');
+  const [installmentCustom, setInstallmentCustom] = useState('');
 
   useEffect(() => {
     let ignore = false;
@@ -128,6 +132,12 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
     setDate(
       initial?.date ? formatLocalDateForInput(new Date(initial.date)) : formatLocalDateForInput(new Date()),
     );
+    if (!initial?.id) {
+      setInstallmentEnabled(false);
+      setInstallmentMonths('3');
+      setInstallmentMode('equal');
+      setInstallmentCustom('');
+    }
   }, [open, initial?.date, initial?.id]);
 
   const toggleTag = (tagId: string) => {
@@ -142,8 +152,58 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
     setError('');
     setLoading(true);
     try {
+      const total = parseFloat(amount);
+      if (Number.isNaN(total) || total <= 0) {
+        setError(t('saveFailed'));
+        setLoading(false);
+        return;
+      }
+
+      if (!isEdit && type === 'expense' && installmentEnabled) {
+        const months = parseInt(installmentMonths, 10);
+        if (Number.isNaN(months) || months < 2 || months > 60) {
+          setError(t('installmentInvalidMonths'));
+          setLoading(false);
+          return;
+        }
+        let amounts: number[] | undefined;
+        let mode = installmentMode;
+        if (mode === 'custom') {
+          const parts = installmentCustom
+            .split(/[,，]/)
+            .map((s) => parseFloat(s.trim()))
+            .filter((n) => !Number.isNaN(n));
+          if (parts.length !== months) {
+            setError(t('installmentInvalidCustom'));
+            setLoading(false);
+            return;
+          }
+          const sum = parts.reduce((a, b) => a + b, 0);
+          if (Math.abs(sum - total) > 0.02) {
+            setError(t('installmentSumMismatch'));
+            setLoading(false);
+            return;
+          }
+          amounts = parts;
+        }
+        await api.post('/transactions/installment', {
+          amount: total,
+          category_id: selectedCategory,
+          ledger_id: ledgerId,
+          note,
+          date: dateInputValueToISO(date),
+          months,
+          mode,
+          amounts,
+          tag_ids: selectedTagIds,
+        });
+        onSuccess();
+        onClose();
+        return;
+      }
+
       const basePayload: Record<string, unknown> = {
-        amount: parseFloat(amount),
+        amount: total,
         type,
         category_id: selectedCategory,
         note,
@@ -225,6 +285,73 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
             autoFocus
           />
         </div>
+
+        {!isEdit && type === 'expense' && (
+          <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)]/40 p-3 space-y-2">
+            <label className="flex items-center gap-2 text-xs font-medium text-[var(--color-text-muted)] cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={installmentEnabled}
+                onChange={(e) => setInstallmentEnabled(e.target.checked)}
+                className="accent-[var(--color-brand)]"
+              />
+              {t('installmentSection')}
+            </label>
+            {installmentEnabled && (
+              <>
+                <p className="text-[11px] text-[var(--color-text-subtle)] leading-relaxed">{t('installmentHint')}</p>
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="w-24">
+                    <label className="text-[10px] text-[var(--color-text-muted)] block mb-1">{t('installmentMonths')}</label>
+                    <input
+                      type="number"
+                      min={2}
+                      max={60}
+                      value={installmentMonths}
+                      onChange={(e) => setInstallmentMonths(e.target.value)}
+                      className="w-full h-9 px-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-sm font-tabular"
+                    />
+                  </div>
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setInstallmentMode('equal')}
+                      className={cn(
+                        'px-2.5 py-1.5 text-xs rounded-[var(--radius-md)] border',
+                        installmentMode === 'equal'
+                          ? 'border-[var(--color-brand)] bg-[var(--color-brand-soft)] text-[var(--color-brand)]'
+                          : 'border-[var(--color-border)] text-[var(--color-text-muted)]',
+                      )}
+                    >
+                      {t('installmentModeEqual')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInstallmentMode('custom')}
+                      className={cn(
+                        'px-2.5 py-1.5 text-xs rounded-[var(--radius-md)] border',
+                        installmentMode === 'custom'
+                          ? 'border-[var(--color-brand)] bg-[var(--color-brand-soft)] text-[var(--color-brand)]'
+                          : 'border-[var(--color-border)] text-[var(--color-text-muted)]',
+                      )}
+                    >
+                      {t('installmentModeCustom')}
+                    </button>
+                  </div>
+                </div>
+                {installmentMode === 'custom' && (
+                  <input
+                    type="text"
+                    value={installmentCustom}
+                    onChange={(e) => setInstallmentCustom(e.target.value)}
+                    placeholder={t('installmentCustomPlaceholder')}
+                    className="w-full h-9 px-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-xs font-mono"
+                  />
+                )}
+              </>
+            )}
+          </div>
+        )}
 
         {/* Category grid */}
         <div className="space-y-2">
@@ -379,7 +506,11 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
             {tc('cancel')}
           </Button>
           <Button type="submit" loading={loading} fullWidth disabled={!selectedCategory}>
-            {isEdit ? t('saveChanges') : t('saveRecord')}
+            {isEdit
+              ? t('saveChanges')
+              : type === 'expense' && installmentEnabled
+                ? t('installmentCreate')
+                : t('saveRecord')}
           </Button>
         </div>
       </form>

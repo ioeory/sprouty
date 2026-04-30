@@ -35,6 +35,8 @@ export interface Ledger {
   type: string;
   owner_id?: string;
   member_count?: number;
+  /** Fallback ledger_total when no month-specific budget row exists */
+  default_monthly_budget?: number;
   /** Present on family ledgers: personal sub-ledgers linked under this home book */
   linked_personal?: LedgerLinkedPersonal[];
   /** Total linked personal books for this family (all members); may exceed linked_personal length */
@@ -81,6 +83,7 @@ export default function AppLayout() {
   const [renameLedgerType, setRenameLedgerType] = useState<'personal' | 'family'>('personal');
   const [renameSaving, setRenameSaving] = useState(false);
   const [renameErr, setRenameErr] = useState('');
+  const [renameDefaultBudget, setRenameDefaultBudget] = useState('');
 
   const persistAppLocale = React.useCallback(async (lng: 'zh-CN' | 'en') => {
     setAppLocale(lng);
@@ -267,6 +270,11 @@ export default function AppLayout() {
                     onClick={() => {
                       setRenameValue(currentLedger.name);
                       setRenameLedgerType(currentLedger.type === 'family' ? 'family' : 'personal');
+                      setRenameDefaultBudget(
+                        currentLedger.default_monthly_budget != null
+                          ? String(currentLedger.default_monthly_budget)
+                          : '',
+                      );
                       setRenameErr('');
                       setRenameOpen(true);
                     }}
@@ -423,7 +431,21 @@ export default function AppLayout() {
                     setRenameSaving(true);
                     setRenameErr('');
                     try {
-                      await api.put(`/ledgers/${currentLedger.id}`, { name, type: renameLedgerType });
+                      const raw = renameDefaultBudget.trim();
+                      const body: Record<string, unknown> = { name, type: renameLedgerType };
+                      if (raw === '') {
+                        body.clear_default_monthly_budget = true;
+                      } else {
+                        const n = parseFloat(raw);
+                        if (Number.isNaN(n) || n < 0) {
+                          setRenameErr(t('ledger:defaultBudgetInvalid'));
+                          setRenameSaving(false);
+                          return;
+                        }
+                        body.default_monthly_budget = n;
+                        body.clear_default_monthly_budget = false;
+                      }
+                      await api.put(`/ledgers/${currentLedger.id}`, body);
                       await refreshLedgers();
                       setRenameOpen(false);
                     } catch (e: any) {
@@ -464,6 +486,16 @@ export default function AppLayout() {
                 </div>
                 <p className="text-[11px] text-[var(--color-text-subtle)] mt-2 leading-relaxed">{t('common:ledgerTypeModalHint')}</p>
               </div>
+              <Input
+                label={t('ledger:defaultBudgetLabel')}
+                value={renameDefaultBudget}
+                onChange={(e) => setRenameDefaultBudget(e.target.value)}
+                placeholder="0"
+                type="number"
+                min={0}
+                step={100}
+              />
+              <p className="text-[11px] text-[var(--color-text-subtle)] leading-relaxed">{t('ledger:defaultBudgetHint')}</p>
             </div>
           </Modal>
         )}

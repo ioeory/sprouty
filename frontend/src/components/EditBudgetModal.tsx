@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Target } from 'lucide-react';
 import api from '../api/client';
@@ -7,17 +7,37 @@ import { Button, Modal } from './ui';
 interface Props {
   open: boolean;
   ledgerId: string;
+  /** Effective budget for this month (override or default), shown in the input. */
   currentBudget: number;
+  /** Calendar month of this override (YYYY-MM). */
+  yearMonth: string;
+  /** Ledger default when no month row exists (informational). */
+  defaultMonthlyBudget?: number | null;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-export default function EditBudgetModal({ open, ledgerId, currentBudget, onClose, onSuccess }: Props) {
+export default function EditBudgetModal({
+  open,
+  ledgerId,
+  currentBudget,
+  yearMonth,
+  defaultMonthlyBudget,
+  onClose,
+  onSuccess,
+}: Props) {
   const { t } = useTranslation('modals');
   const { t: tc } = useTranslation('common');
   const [amount, setAmount] = useState(currentBudget ? currentBudget.toString() : '');
   const [loading, setLoading] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!open) return;
+    setAmount(currentBudget ? String(currentBudget) : '');
+    setError('');
+  }, [open, currentBudget]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,8 +45,6 @@ export default function EditBudgetModal({ open, ledgerId, currentBudget, onClose
     setError('');
     setLoading(true);
     try {
-      const now = new Date();
-      const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
       await api.post('/budgets', {
         ledger_id: ledgerId,
         amount: parseFloat(amount),
@@ -34,10 +52,30 @@ export default function EditBudgetModal({ open, ledgerId, currentBudget, onClose
       });
       onSuccess();
       onClose();
-    } catch (err: any) {
-      setError(err.response?.data?.error || t('updateBudgetFailed'));
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || t('updateBudgetFailed');
+      setError(msg);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleClearOverride = async () => {
+    setError('');
+    setClearing(true);
+    try {
+      await api.delete(`/budgets/month-override?ledger_id=${encodeURIComponent(ledgerId)}&year_month=${encodeURIComponent(yearMonth)}`);
+      onSuccess();
+      onClose();
+    } catch (err: unknown) {
+      const e = err as { response?: { status?: number; data?: { error?: string } } };
+      if (e.response?.status === 404) {
+        setError(t('editBudgetNoOverride'));
+      } else {
+        setError(e.response?.data?.error || t('updateBudgetFailed'));
+      }
+    } finally {
+      setClearing(false);
     }
   };
 
@@ -57,6 +95,11 @@ export default function EditBudgetModal({ open, ledgerId, currentBudget, onClose
       description={t('editBudgetDesc')}
     >
       <form onSubmit={handleSubmit} className="space-y-5">
+        {defaultMonthlyBudget != null && defaultMonthlyBudget > 0 && (
+          <p className="text-[11px] text-[var(--color-text-subtle)] leading-relaxed">
+            {t('editBudgetDefaultHint', { amount: defaultMonthlyBudget.toLocaleString() })}
+          </p>
+        )}
         <div className="space-y-2">
           <div className="relative">
             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--color-text-subtle)] text-xl font-semibold">¥</span>
@@ -72,6 +115,7 @@ export default function EditBudgetModal({ open, ledgerId, currentBudget, onClose
               autoFocus
             />
           </div>
+          <p className="text-[10px] text-center text-[var(--color-text-subtle)]">{yearMonth}</p>
           <div className="flex flex-wrap gap-1.5 pt-1 justify-center">
             {presets.map((p) => (
               <button
@@ -92,12 +136,17 @@ export default function EditBudgetModal({ open, ledgerId, currentBudget, onClose
           </div>
         )}
 
-        <div className="flex gap-2">
-          <Button type="button" variant="outline" fullWidth onClick={onClose}>
-            {tc('cancel')}
-          </Button>
-          <Button type="submit" loading={loading} fullWidth>
-            {t('saveBudget')}
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" fullWidth onClick={onClose}>
+              {tc('cancel')}
+            </Button>
+            <Button type="submit" loading={loading} fullWidth>
+              {t('saveBudget')}
+            </Button>
+          </div>
+          <Button type="button" variant="ghost" size="sm" loading={clearing} onClick={() => void handleClearOverride()}>
+            {t('editBudgetClearOverride')}
           </Button>
         </div>
       </form>

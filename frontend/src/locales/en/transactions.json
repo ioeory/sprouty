@@ -40,5 +40,8 @@
   "loadMore": "Load more ({{remaining}} left)",
   "confirmDeleteTitle": "Delete this entry?",
   "confirmDeleteDesc": "This cannot be undone",
-  "noNote": "No note"
+  "noNote": "No note",
+  "badgeInstallment": "Installment",
+  "deleteInstallmentGroupTitle": "Delete entire installment group",
+  "confirmDeleteInstallment": "This removes all linked installment entries across months. Continue?"
 }

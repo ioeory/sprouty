@@ -2,5 +2,8 @@
   "familyBadge": "家庭 · {{count}} 人",
   "personalBadge": "个人 · {{count}} 人",
   "subLedger": "子账 · {{name}}",
-  "noLedgers": "暂无账本"
+  "noLedgers": "暂无账本",
+  "defaultBudgetLabel": "默认月度总预算",
+  "defaultBudgetHint": "未单独设置某月预算时沿用此金额；在仪表盘「设置本月预算」可写仅当月的覆盖值。",
+  "defaultBudgetInvalid": "请输入有效的非负数，或留空以清除默认预算"
 }

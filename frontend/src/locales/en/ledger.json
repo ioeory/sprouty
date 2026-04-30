@@ -2,5 +2,8 @@
   "familyBadge": "Family · {{count}}",
   "personalBadge": "Personal · {{count}}",
   "subLedger": "Sub · {{name}}",
-  "noLedgers": "No ledgers"
+  "noLedgers": "No ledgers",
+  "defaultBudgetLabel": "Default monthly budget",
+  "defaultBudgetHint": "Used when a month has no specific budget row. Dashboard “monthly budget” sets a per-month override.",
+  "defaultBudgetInvalid": "Enter a valid non-negative number, or leave empty to clear the default"
 }

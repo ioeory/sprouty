@@ -92,6 +92,22 @@ export default function Categories() {
     return { expense, income };
   }, [categories]);
 
+  const tagClusterLedgerIds = useMemo(() => {
+    if (!currentLedger || currentLedger.type !== 'family') return undefined;
+    const subs = currentLedger.linked_personal || [];
+    if (subs.length === 0) return undefined;
+    return [currentLedger.id, ...subs.map((p) => p.id)];
+  }, [currentLedger]);
+
+  const tagLedgerLabelById = useMemo(() => {
+    if (!currentLedger) return {};
+    const m: Record<string, string> = { [currentLedger.id]: currentLedger.name };
+    (currentLedger.linked_personal || []).forEach((p) => {
+      m[p.id] = p.name;
+    });
+    return m;
+  }, [currentLedger]);
+
   const openCreate = (type: 'expense' | 'income') => {
     setEditor({ ...DEFAULT_EDIT, type });
     setError('');
@@ -323,7 +339,11 @@ export default function Categories() {
       {/* Tags live alongside categories but are a separate concern: they
           annotate transactions across categories, and their main purpose is
           controlling what enters the statistics. */}
-      <TagsManager ledgerId={currentLedger.id} />
+      <TagsManager
+        ledgerId={currentLedger.id}
+        clusterLedgerIds={tagClusterLedgerIds}
+        ledgerLabelById={tagLedgerLabelById}
+      />
 
       <Modal
         open={!!editor}

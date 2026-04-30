@@ -58,6 +58,7 @@ func main() {
 		protected.POST("/ledgers", api.CreateLedger)
 		protected.PUT("/ledgers/:id", api.UpdateLedger)
 		protected.POST("/budgets", api.SetBudget)
+		protected.DELETE("/budgets/month-override", api.DeleteBudgetMonthOverride)
 
 		// Ledger sharing
 		protected.POST("/ledgers/:id/invite", api.CreateLedgerInvite)
@@ -71,8 +72,10 @@ func main() {
 		// Transaction routes
 		protected.GET("/transactions", api.GetTransactions)
 		protected.POST("/transactions", api.CreateTransaction)
+		protected.POST("/transactions/installment", api.CreateInstallment)
 		protected.PUT("/transactions/:id", api.UpdateTransaction)
 		protected.DELETE("/transactions/:id", api.DeleteTransaction)
+		protected.DELETE("/transactions/installment-group/:groupId", api.DeleteInstallmentGroup)
 
 		// Category routes
 		protected.GET("/categories", api.GetCategories)
