@@ -16,6 +16,8 @@ import {
   FolderKanban,
   CalendarDays,
   CalendarRange,
+  ChevronLeft,
+  ChevronRight,
   Infinity as InfinityIcon,
   Book,
 } from 'lucide-react';
@@ -70,6 +72,7 @@ interface Summary {
   /** True when viewing a family ledger and expenses aggregate linked personal books you can access */
   includes_linked_personal?: boolean;
   linked_personal_in_cluster?: number;
+  is_current_month?: boolean;
 }
 
 type Scope = 'current' | 'all';
@@ -99,6 +102,29 @@ interface Transaction {
 function ledgerClusterIds(ledger: Ledger): string[] {
   if (ledger.type !== 'family') return [ledger.id];
   return [ledger.id, ...(ledger.linked_personal || []).map((p) => p.id)];
+}
+
+function formatYearMonth(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function clampYearMonthToNow(ym: string): string {
+  const cap = formatYearMonth(new Date());
+  return ym > cap ? cap : ym;
+}
+
+/** Local calendar bounds as `YYYY-MM-DD` for API date filters. */
+function boundsForYearMonth(ym: string): { start: string; end: string } | null {
+  const m = ym.match(/^(\d{4})-(\d{2})$/);
+  if (!m) return null;
+  const y = parseInt(m[1], 10);
+  const mo = parseInt(m[2], 10);
+  if (mo < 1 || mo > 12) return null;
+  const lastDay = new Date(y, mo, 0).getDate();
+  return {
+    start: `${y}-${String(mo).padStart(2, '0')}-01`,
+    end: `${y}-${String(mo).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`,
+  };
 }
 
 function mergeById<T extends { id: string }>(lists: T[][]): T[] {
@@ -188,6 +214,13 @@ export default function Dashboard() {
   const [scope, setScope] = useState<Scope>('current');
   const [groupBy, setGroupBy] = useState<GroupBy>('category');
   const [period, setPeriod] = useState<Period>('month');
+  const [selectedYearMonth, setSelectedYearMonth] = useState(() => formatYearMonth(new Date()));
+  const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear());
+
+  const yearNavChoices = React.useMemo(() => {
+    const cy = new Date().getFullYear();
+    return Array.from({ length: 16 }, (_, i) => cy - i);
+  }, []);
 
   // Tag filter state. `bypassTagFilter` trumps `manualExcludeTagIds`:
   // when true, the dashboard shows EVERYTHING including tags flagged as
@@ -241,6 +274,11 @@ export default function Dashboard() {
     try {
       setLoading(true);
       const sumParams = new URLSearchParams({ group_by: groupBy, period });
+      if (period === 'month') {
+        sumParams.set('year_month', selectedYearMonth);
+      } else if (period === 'year') {
+        sumParams.set('year', String(selectedYear));
+      }
       if (scope === 'all') {
         sumParams.set('scope', 'all');
       } else {
@@ -252,9 +290,16 @@ export default function Dashboard() {
         sumParams.set('exclude_tag_ids', manualExcludeTagIds.join(','));
       }
       const cluster = ledgerClusterIds(ledger);
+      let txUrl = `/transactions?ledger_id=${ledger.id}&limit=5`;
+      if (period === 'month') {
+        const b = boundsForYearMonth(selectedYearMonth);
+        if (b) {
+          txUrl += `&start_date=${b.start}&end_date=${b.end}`;
+        }
+      }
       const [sumRes, txRes, catResults, tagResults] = await Promise.all([
         api.get(`/dashboard/summary?${sumParams.toString()}`),
-        api.get(`/transactions?ledger_id=${ledger.id}&limit=5`),
+        api.get(txUrl),
         Promise.all(cluster.map((id) => api.get(`/categories?ledger_id=${id}`))),
         Promise.all(cluster.map((id) => api.get(`/tags?ledger_id=${id}`))),
       ]);
@@ -302,7 +347,20 @@ export default function Dashboard() {
     period,
     bypassTagFilter,
     manualExcludeTagIds.join(','),
+    selectedYearMonth,
+    selectedYear,
   ]);
+
+  const shiftSelectedMonth = (delta: number) => {
+    const m = selectedYearMonth.match(/^(\d{4})-(\d{2})$/);
+    if (!m) return;
+    const y = parseInt(m[1], 10);
+    const mo = parseInt(m[2], 10);
+    const d = new Date(y, mo - 1 + delta, 1);
+    setSelectedYearMonth(clampYearMonthToNow(formatYearMonth(d)));
+  };
+
+  const maxYearMonth = formatYearMonth(new Date());
 
   const toggleManualExcludeTag = (id: string) => {
     setManualExcludeTagIds((prev) =>
@@ -361,21 +419,33 @@ export default function Dashboard() {
         ? t('dashboard:allYear', { year: summary?.year ?? new Date().getFullYear() })
         : t('dashboard:allTime');
   const expenseLabel =
-    period === 'month'
-      ? t('dashboard:expenseThisMonth')
-      : period === 'year'
-        ? t('dashboard:expenseThisYear')
-        : t('dashboard:expenseTotal');
+    period === 'month' && summary?.is_current_month === false
+      ? t('dashboard:expenseSelectedMonth')
+      : period === 'month'
+        ? t('dashboard:expenseThisMonth')
+        : period === 'year'
+          ? t('dashboard:expenseThisYear')
+          : t('dashboard:expenseTotal');
   const totalLabel = expenseLabel;
   const chartGroupKey =
     groupBy === 'category' ? 'chartDescCategory' : groupBy === 'project' ? 'chartDescProject' : 'chartDescLedger';
   const chartExpenseKey =
-    period === 'month' ? 'expenseThisMonth' : period === 'year' ? 'expenseThisYear' : 'expenseTotal';
+    period === 'month' && summary?.is_current_month === false
+      ? 'expenseSelectedMonth'
+      : period === 'month'
+        ? 'expenseThisMonth'
+        : period === 'year'
+          ? 'expenseThisYear'
+          : 'expenseTotal';
   const chartDescription = t('dashboard:chartLine', {
     group: t(`dashboard:${chartGroupKey}`),
     expense: t(`dashboard:${chartExpenseKey}`),
     cross: scope === 'all' ? t('dashboard:chartCross') : '',
   });
+
+  const mergedFamilyRecent =
+    currentLedger.type === 'family' &&
+    ((currentLedger.linked_personal_count ?? 0) > 0 || (currentLedger.linked_personal?.length ?? 0) > 0);
 
   return (
     <div className="space-y-5">
@@ -400,6 +470,47 @@ export default function Dashboard() {
             value={period}
             onChange={setPeriod}
           />
+          {period === 'month' && (
+            <div className="inline-flex items-center gap-0.5 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-0.5">
+              <button
+                type="button"
+                aria-label={t('dashboard:prevMonth')}
+                onClick={() => shiftSelectedMonth(-1)}
+                className="h-8 w-8 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)]"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <input
+                type="month"
+                max={maxYearMonth}
+                value={selectedYearMonth}
+                onChange={(e) => setSelectedYearMonth(clampYearMonthToNow(e.target.value))}
+                className="h-8 min-w-[9.5rem] px-1 text-xs font-tabular bg-transparent border-0 outline-none text-[var(--color-text)] [color-scheme:dark]"
+              />
+              <button
+                type="button"
+                aria-label={t('dashboard:nextMonth')}
+                disabled={selectedYearMonth >= maxYearMonth}
+                onClick={() => shiftSelectedMonth(1)}
+                className="h-8 w-8 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)] disabled:opacity-30 disabled:pointer-events-none"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          )}
+          {period === 'year' && (
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(Number(e.target.value))}
+              className="h-8 px-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-xs font-tabular text-[var(--color-text)] outline-none focus:border-[var(--color-brand)]"
+            >
+              {yearNavChoices.map((y) => (
+                <option key={y} value={y}>
+                  {t('dashboard:yearOption', { year: y })}
+                </option>
+              ))}
+            </select>
+          )}
           <SegmentedControl<Scope>
             items={[
               { value: 'current', label: t('dashboard:scopeCurrent'), icon: <Wallet size={12} /> },
@@ -521,22 +632,35 @@ export default function Dashboard() {
                 ¥{expense.toLocaleString()}
               </p>
             </div>
-            <div>
-              <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider flex items-center gap-1">
-                <Calendar size={11} /> {t('dashboard:daysLeftLabel')}
-              </p>
-              <p className="text-sm font-semibold font-tabular text-[var(--color-text)] mt-1">
-                {summary?.days_left ?? 0} {t('dashboard:daysUnit')}
-              </p>
-            </div>
-            <div>
-              <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider flex items-center gap-1">
-                <Sparkles size={11} /> {t('dashboard:dailyLimit')}
-              </p>
-              <p className={`text-sm font-semibold font-tabular mt-1 ${summary && summary.daily_avg_limit < 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-brand)]'}`}>
-                ¥{(summary?.daily_avg_limit ?? 0).toFixed(2)}
-              </p>
-            </div>
+            {period === 'month' && summary?.is_current_month === false ? (
+              <div className="col-span-2 flex flex-col justify-center">
+                <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider">
+                  {t('dashboard:historicalMonthHint')}
+                </p>
+                <p className="text-xs text-[var(--color-text-muted)] mt-1 leading-relaxed">{t('dashboard:daysDailyN/a')}</p>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider flex items-center gap-1">
+                    <Calendar size={11} /> {t('dashboard:daysLeftLabel')}
+                  </p>
+                  <p className="text-sm font-semibold font-tabular text-[var(--color-text)] mt-1">
+                    {summary?.days_left ?? 0} {t('dashboard:daysUnit')}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider flex items-center gap-1">
+                    <Sparkles size={11} /> {t('dashboard:dailyLimit')}
+                  </p>
+                  <p
+                    className={`text-sm font-semibold font-tabular mt-1 ${summary && summary.daily_avg_limit < 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-brand)]'}`}
+                  >
+                    ¥{(summary?.daily_avg_limit ?? 0).toFixed(2)}
+                  </p>
+                </div>
+              </>
+            )}
           </div>
         </Card>
 
@@ -698,10 +822,13 @@ export default function Dashboard() {
             icon={<Receipt size={16} />}
             title={t('dashboard:recentTitle')}
             description={
-              currentLedger.type === 'family' &&
-              ((currentLedger.linked_personal_count ?? 0) > 0 || (currentLedger.linked_personal?.length ?? 0) > 0)
-                ? t('dashboard:recentDescMerged')
-                : t('dashboard:recentDescDefault')
+              period === 'month'
+                ? mergedFamilyRecent
+                  ? t('dashboard:recentDescMergedMonth', { month: selectedYearMonth })
+                  : t('dashboard:recentDescMonth', { month: selectedYearMonth })
+                : mergedFamilyRecent
+                  ? t('dashboard:recentDescMerged')
+                  : t('dashboard:recentDescDefault')
             }
             action={
               <button

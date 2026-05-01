@@ -85,6 +85,20 @@ function canMutateTransaction(tx: Transaction, currentLedgerId: string, mutableI
   return mutableIds.has(lid);
 }
 
+/** Local calendar bounds as `YYYY-MM-DD` for API date filters. */
+function boundsForYearMonth(ym: string): { start: string; end: string } | null {
+  const m = ym.match(/^(\d{4})-(\d{2})$/);
+  if (!m) return null;
+  const y = parseInt(m[1], 10);
+  const mo = parseInt(m[2], 10);
+  if (mo < 1 || mo > 12) return null;
+  const lastDay = new Date(y, mo, 0).getDate();
+  return {
+    start: `${y}-${String(mo).padStart(2, '0')}-01`,
+    end: `${y}-${String(mo).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`,
+  };
+}
+
 function mergeCategoriesById(lists: Category[][]): Category[] {
   const out: Category[] = [];
   const seen = new Set<string>();
@@ -128,6 +142,9 @@ export default function Transactions() {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [billMonth, setBillMonth] = useState('');
+  const [sumExpense, setSumExpense] = useState<number | null>(null);
+  const [sumIncome, setSumIncome] = useState<number | null>(null);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
 
@@ -183,6 +200,10 @@ export default function Transactions() {
       const res = await api.get(`/transactions?${params.toString()}`);
       const items: Transaction[] = res.data?.items || [];
       const t: number = res.data?.total ?? items.length;
+      const se = res.data?.sum_expense;
+      const si = res.data?.sum_income;
+      setSumExpense(typeof se === 'number' ? se : null);
+      setSumIncome(typeof si === 'number' ? si : null);
       if (reset) {
         setTxs(items);
         setOffset(items.length);
@@ -215,9 +236,15 @@ export default function Transactions() {
     }
   }, [currentLedger?.id, typeFilter, categoryFilter, startDate, endDate, debouncedSearch]);
 
+  useEffect(() => {
+    if (!startDate || !endDate) {
+      setBillMonth('');
+    }
+  }, [startDate, endDate]);
+
   const groups = useMemo(() => groupByDate(txs), [txs]);
 
-  const monthTotal = useMemo(() => {
+  const loadedTotals = useMemo(() => {
     return txs.reduce(
       (acc, t) => {
         if (t.type === 'income') acc.income += t.amount;
@@ -228,6 +255,9 @@ export default function Transactions() {
     );
   }, [txs]);
 
+  const displayExpense = sumExpense ?? loadedTotals.expense;
+  const displayIncome = sumIncome ?? loadedTotals.income;
+
   const hasMore = txs.length < total;
   const activeFilterCount =
     [typeFilter, categoryFilter, startDate, endDate, debouncedSearch].filter(Boolean).length;
@@ -237,8 +267,11 @@ export default function Transactions() {
     setCategoryFilter('');
     setStartDate('');
     setEndDate('');
+    setBillMonth('');
     setSearch('');
   };
+
+  const maxBillMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
 
   const confirmDelete = async () => {
     if (!deleting) return;
@@ -339,16 +372,21 @@ export default function Transactions() {
           <div className="px-3">
             <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider">{t('transactions:viewExpense')}</p>
             <p className="text-sm font-semibold font-tabular text-[var(--color-text)] mt-0.5">
-              ¥{monthTotal.expense.toLocaleString()}
+              ¥{displayExpense.toLocaleString()}
             </p>
           </div>
           <div className="pl-3">
             <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider">{t('transactions:viewIncome')}</p>
             <p className="text-sm font-semibold font-tabular text-[var(--color-success)] mt-0.5">
-              ¥{monthTotal.income.toLocaleString()}
+              ¥{displayIncome.toLocaleString()}
             </p>
           </div>
         </div>
+        {(sumExpense !== null || sumIncome !== null) && (
+          <p className="text-[10px] text-[var(--color-text-muted)] px-3 pb-2 pt-2 border-t border-[var(--color-border)]">
+            {t('transactions:aggregatesHint')}
+          </p>
+        )}
       </Card>
 
       {/* Filter panel */}
@@ -375,7 +413,29 @@ export default function Transactions() {
                 </option>
               ))}
             </Select>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <input
+                type="month"
+                title={t('transactions:filterByMonth')}
+                aria-label={t('transactions:filterByMonth')}
+                max={maxBillMonth}
+                value={billMonth}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setBillMonth(v);
+                  if (v) {
+                    const b = boundsForYearMonth(v);
+                    if (b) {
+                      setStartDate(b.start);
+                      setEndDate(b.end);
+                    }
+                  } else {
+                    setStartDate('');
+                    setEndDate('');
+                  }
+                }}
+                className="h-10 px-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-xs font-tabular text-[var(--color-text)] outline-none focus:border-[var(--color-brand)] [color-scheme:dark]"
+              />
               <input
                 type="date"
                 value={startDate}

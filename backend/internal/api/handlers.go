@@ -453,8 +453,11 @@ func GetTransactions(c *gin.Context) {
 
 	paginated := c.Query("limit") != "" || c.Query("offset") != ""
 	var total int64
+	var sumExpense, sumIncome float64
 	if paginated {
-		query.Count(&total)
+		query.Session(&gorm.Session{}).Count(&total)
+		query.Session(&gorm.Session{}).Where("type = ?", "expense").Select("COALESCE(SUM(amount), 0)").Scan(&sumExpense)
+		query.Session(&gorm.Session{}).Where("type = ?", "income").Select("COALESCE(SUM(amount), 0)").Scan(&sumIncome)
 	}
 
 	limit := 50
@@ -468,7 +471,7 @@ func GetTransactions(c *gin.Context) {
 
 	var transactions []models.Transaction
 	// Same calendar day shares one `date`; tie-break by recording time so newest-first.
-	q := query.Order("date DESC, created_at DESC")
+	q := query.Session(&gorm.Session{}).Order("date DESC, created_at DESC")
 	if paginated {
 		q = q.Limit(limit).Offset(offset)
 	}
@@ -487,10 +490,12 @@ func GetTransactions(c *gin.Context) {
 
 	if paginated {
 		c.JSON(http.StatusOK, gin.H{
-			"items":  items,
-			"total":  total,
-			"limit":  limit,
-			"offset": offset,
+			"items":       items,
+			"total":       total,
+			"limit":       limit,
+			"offset":      offset,
+			"sum_expense": sumExpense,
+			"sum_income":  sumIncome,
 		})
 		return
 	}
@@ -763,6 +768,8 @@ func userLedgerIDs(userID uuid.UUID) []uuid.UUID {
 //	year_month=YYYY-MM          - specific month, overrides default current month
 //	year=YYYY                   - specific year, overrides default current year
 //
+// Response includes is_current_month when period=month (true only if the viewed month is today’s calendar month).
+//
 // When ledger_id is a family ledger, expenses aggregate across that ledger plus every
 // linked personal (merged household flow). Monthly ledger_total budget uses only the
 // family ledger's own budget row. Response fields includes_linked_personal /
@@ -925,6 +932,7 @@ func GetDashboardSummary(c *gin.Context) {
 		"scope":                        scope,
 		"group_by":                     groupBy,
 		"period":                       period,
+		"is_current_month":             period == "month" && targetYear == now.Year() && targetMonth == now.Month(),
 		"category_stats":               []any{},
 		"project_stats":                []any{},
 		"ledger_stats":                 []any{},
@@ -968,17 +976,35 @@ func GetDashboardSummary(c *gin.Context) {
 		q.Select("COALESCE(SUM(amount), 0)").Scan(&totalExpense)
 	}
 
-	// Days-left / daily-avg only meaningful for current-month view
-	daysInMonth := time.Date(now.Year(), now.Month()+1, 0, 0, 0, 0, 0, loc).Day()
-	daysLeft := daysInMonth - now.Day() + 1
-	if daysLeft <= 0 {
-		daysLeft = 1
-	}
-	remainingCurrentMonth := totalBudget
-	if period == "month" && targetYear == now.Year() && targetMonth == now.Month() {
-		remainingCurrentMonth = totalBudget - totalExpense
-	} else {
-		// For year/all or non-current-month, recompute using the *current* month's expense
+	isCurrentMonth := period == "month" && targetYear == now.Year() && targetMonth == now.Month()
+	daysInSelectedMonth := time.Date(targetYear, targetMonth+1, 0, 0, 0, 0, 0, loc).Day()
+
+	var daysLeft int
+	var remainingBudget float64
+	var dailyAvg float64
+
+	switch {
+	case period == "month" && isCurrentMonth:
+		remainingBudget = totalBudget - totalExpense
+		daysLeft = daysInSelectedMonth - now.Day() + 1
+		if daysLeft <= 0 {
+			daysLeft = 1
+		}
+		if daysLeft > 0 && totalBudget > 0 {
+			dailyAvg = remainingBudget / float64(daysLeft)
+		}
+	case period == "month" && !isCurrentMonth:
+		// Historical / future calendar month: remaining matches the selected window only.
+		remainingBudget = totalBudget - totalExpense
+		daysLeft = 0
+		dailyAvg = 0
+	default:
+		// year / all: keep prior semantics (budget row for `current_month` label vs this calendar month's spend).
+		daysInNowMonth := time.Date(now.Year(), now.Month()+1, 0, 0, 0, 0, 0, loc).Day()
+		daysLeft = daysInNowMonth - now.Day() + 1
+		if daysLeft <= 0 {
+			daysLeft = 1
+		}
 		var curMonthExpense float64
 		q := service.DB.Model(&models.Transaction{}).
 			Where("ledger_id IN ? AND type = 'expense' AND date >= ? AND date <= ?",
@@ -987,11 +1013,10 @@ func GetDashboardSummary(c *gin.Context) {
 				time.Date(now.Year(), now.Month()+1, 0, 23, 59, 59, 0, loc))
 		q = applyTagExclusion(q, "")
 		q.Select("COALESCE(SUM(amount), 0)").Scan(&curMonthExpense)
-		remainingCurrentMonth = totalBudget - curMonthExpense
-	}
-	dailyAvg := 0.0
-	if daysLeft > 0 && totalBudget > 0 {
-		dailyAvg = remainingCurrentMonth / float64(daysLeft)
+		remainingBudget = totalBudget - curMonthExpense
+		if daysLeft > 0 && totalBudget > 0 {
+			dailyAvg = remainingBudget / float64(daysLeft)
+		}
 	}
 
 	// --- Pie slices (all three dimensions computed in parallel) ---
@@ -1080,7 +1105,7 @@ func GetDashboardSummary(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"total_budget":                 totalBudget,
 		"total_expense":                totalExpense,
-		"remaining_budget":             remainingCurrentMonth,
+		"remaining_budget":             remainingBudget,
 		"days_left":                    daysLeft,
 		"daily_avg_limit":              dailyAvg,
 		"current_month":                currentMonth,
@@ -1088,6 +1113,7 @@ func GetDashboardSummary(c *gin.Context) {
 		"scope":                        scope,
 		"group_by":                     groupBy,
 		"period":                       period,
+		"is_current_month":             isCurrentMonth,
 		"category_stats":               catStats,
 		"project_stats":                projectStats,
 		"ledger_stats":                 ledgerStats,

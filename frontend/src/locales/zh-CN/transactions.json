@@ -24,6 +24,8 @@
   "categoryTypeExpense": "支",
   "categoryTypeIncome": "收",
   "clearFilters": "清空筛选",
+  "filterByMonth": "账单月份",
+  "aggregatesHint": "支出/收入合计为当前筛选条件下全部记录之和（含未加载的分页数据）。",
   "emptyTitle": "没有符合条件的记录",
   "emptyDescFiltered": "试试调整或清空筛选条件",
   "emptyDescDefault": "从右上角「新增」开始记录第一笔",

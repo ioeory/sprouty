@@ -24,6 +24,8 @@
   "categoryTypeExpense": "Exp",
   "categoryTypeIncome": "Inc",
   "clearFilters": "Clear filters",
+  "filterByMonth": "Bill month",
+  "aggregatesHint": "Totals include all rows matching the filters (not only the loaded page).",
   "emptyTitle": "No matching records",
   "emptyDescFiltered": "Try adjusting or clearing filters",
   "emptyDescDefault": "Use “Add” in the header to add your first entry",
