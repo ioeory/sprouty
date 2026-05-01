@@ -79,6 +79,7 @@
   "recentEmptyTitle": "No entries",
   "recentEmptyDesc": "Use “Add entry” in the header to start",
   "uncategorized": "Uncategorized",
+  "chartOther": "Other (small amounts)",
   "spendChartTotal": "Total spend",
   "spendChartEmptyTitle": "No data yet",
   "spendChartEmptyDesc": "Add an expense to see the breakdown"
