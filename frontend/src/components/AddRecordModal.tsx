@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Calendar, ArrowDown, ArrowUp, Loader2, FolderKanban, Tag as TagIcon } from 'lucide-react';
 import api from '../api/client';
 import { dateInputValueToISO, formatLocalDateForInput } from '../lib/dateLocal';
+import { LocaleDateField } from './LocalePickers';
 import { Button, Modal, CategoryIcon, cn } from './ui';
 import { pickCategoryDisplayName } from '../lib/categoryDisplay';
 
@@ -437,10 +438,9 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
             <label className="text-xs font-medium text-[var(--color-text-muted)] flex items-center gap-1.5">
               <Calendar size={12} /> {t('date')}
             </label>
-            <input
-              type="date"
+            <LocaleDateField
               value={date}
-              onChange={(e) => setDate(e.target.value)}
+              onChange={setDate}
               className="w-full h-10 px-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] text-sm font-tabular outline-none focus:border-[var(--color-brand)] focus:ring-2 focus:ring-[var(--color-brand)]/20"
             />
           </div>

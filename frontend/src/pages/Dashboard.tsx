@@ -25,6 +25,7 @@ import { cn } from '../components/ui';
 import api from '../api/client';
 import SpendingChart from '../components/SpendingChart';
 import EditBudgetModal from '../components/EditBudgetModal';
+import { LocaleMonthField } from '../components/LocalePickers';
 import { Button, Card, CardHeader, EmptyState, Badge, CategoryIcon } from '../components/ui';
 import { useLayout, type Ledger } from '../components/AppLayout';
 import {
@@ -480,12 +481,15 @@ export default function Dashboard() {
               >
                 <ChevronLeft size={16} />
               </button>
-              <input
-                type="month"
-                max={maxYearMonth}
+              <LocaleMonthField
                 value={selectedYearMonth}
-                onChange={(e) => setSelectedYearMonth(clampYearMonthToNow(e.target.value))}
-                className="h-8 min-w-[9.5rem] px-1 text-xs font-tabular bg-transparent border-0 outline-none text-[var(--color-text)] [color-scheme:dark]"
+                max={maxYearMonth}
+                allowClear={false}
+                onChange={(v) => {
+                  if (!v) return;
+                  setSelectedYearMonth(clampYearMonthToNow(v));
+                }}
+                className="h-8 min-w-[9.5rem] !rounded-none !border-0 !bg-transparent !shadow-none px-1 text-xs"
               />
               <button
                 type="button"

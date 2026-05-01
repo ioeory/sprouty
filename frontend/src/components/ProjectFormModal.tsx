@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import api from '../api/client';
 import { dateInputValueToISO, formatLocalDateForInput } from '../lib/dateLocal';
+import { LocaleDateField } from './LocalePickers';
 import {
   Modal,
   Button,
@@ -157,19 +158,19 @@ export default function ProjectFormModal({ open, ledgerId, initial, onClose, onS
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-[var(--color-text-muted)]">{t('startDate')}</label>
-            <input
-              type="date"
+            <LocaleDateField
               value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
+              onChange={setStartDate}
+              max={endDate || undefined}
               className="w-full h-10 px-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] text-sm outline-none focus:border-[var(--color-brand)] focus:ring-2 focus:ring-[var(--color-brand)]/20"
             />
           </div>
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-[var(--color-text-muted)]">{t('endDate')}</label>
-            <input
-              type="date"
+            <LocaleDateField
               value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
+              onChange={setEndDate}
+              min={startDate || undefined}
               className="w-full h-10 px-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] text-sm outline-none focus:border-[var(--color-brand)] focus:ring-2 focus:ring-[var(--color-brand)]/20"
             />
           </div>

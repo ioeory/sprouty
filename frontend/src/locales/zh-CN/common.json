@@ -46,5 +46,11 @@
   "passwordMismatch": "两次输入的新密码不一致",
   "passwordChanged": "密码已更新",
   "passwordMinHint": "至少 6 位",
-  "passwordTooShort": "密码至少 6 位"
+  "passwordTooShort": "密码至少 6 位",
+  "calendarClear": "清除",
+  "calendarToday": "今天",
+  "calendarThisMonth": "本月",
+  "calendarPickDate": "选择日期",
+  "calendarPickMonth": "选择月份",
+  "calendarWeekdays": ["日", "一", "二", "三", "四", "五", "六"]
 }

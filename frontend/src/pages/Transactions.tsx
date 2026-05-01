@@ -18,8 +18,10 @@ import {
 import api from '../api/client';
 import { Badge, Button, Card, CategoryIcon, EmptyState, Input, Select, Modal } from '../components/ui';
 import AddRecordModal from '../components/AddRecordModal';
+import { LocaleDateField, LocaleMonthField } from '../components/LocalePickers';
 import { useLayout } from '../components/AppLayout';
 import { pickCategoryDisplayName } from '../lib/categoryDisplay';
+import { groupCategoriesBySemanticKey } from '../lib/categoryMerge';
 
 interface TxTag {
   id: string;
@@ -99,20 +101,6 @@ function boundsForYearMonth(ym: string): { start: string; end: string } | null {
   };
 }
 
-function mergeCategoriesById(lists: Category[][]): Category[] {
-  const out: Category[] = [];
-  const seen = new Set<string>();
-  for (const list of lists) {
-    for (const c of list) {
-      if (!seen.has(c.id)) {
-        seen.add(c.id);
-        out.push(c);
-      }
-    }
-  }
-  return out;
-}
-
 export default function Transactions() {
   const { t, i18n } = useTranslation(['transactions', 'common']);
   const { currentLedger, ledgers } = useLayout();
@@ -134,12 +122,13 @@ export default function Transactions() {
   const [txs, setTxs] = useState<Transaction[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [allCategoriesFlat, setAllCategoriesFlat] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterOpen, setFilterOpen] = useState(false);
 
   const [typeFilter, setTypeFilter] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
+  /** Semantic merge key from `groupCategoriesBySemanticKey`; empty = all categories */
+  const [categoryMergeKey, setCategoryMergeKey] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [billMonth, setBillMonth] = useState('');
@@ -154,11 +143,30 @@ export default function Transactions() {
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [txFeedback, setTxFeedback] = useState('');
 
-  const categoryMap = useMemo(() => {
+  const categoryEntityById = useMemo(() => {
     const map: Record<string, Category> = {};
-    categories.forEach((c) => (map[c.id] = c));
+    allCategoriesFlat.forEach((c) => {
+      map[c.id] = c;
+    });
     return map;
-  }, [categories]);
+  }, [allCategoriesFlat]);
+
+  const categoryGroups = useMemo(
+    () => groupCategoriesBySemanticKey(allCategoriesFlat),
+    [allCategoriesFlat],
+  );
+
+  const mergedCategorySelectOptions = useMemo(() => {
+    const rows = Array.from(categoryGroups.entries()).map(([key, { rep }]) => {
+      const lab =
+        pickCategoryDisplayName(i18n.language, rep.name_zh, rep.name_en) || rep.name;
+      const suf =
+        rep.type === 'expense' ? t('transactions:categoryTypeExpense') : t('transactions:categoryTypeIncome');
+      return { key, label: `${lab}（${suf}）` };
+    });
+    rows.sort((a, b) => a.label.localeCompare(b.label, i18n.language));
+    return rows;
+  }, [categoryGroups, i18n.language, t]);
 
   const categoryLabel = (c: Category | undefined) =>
     (c && (pickCategoryDisplayName(i18n.language, c.name_zh, c.name_en) || c.name)) || '';
@@ -176,7 +184,8 @@ export default function Transactions() {
           ? [currentLedger.id, ...(currentLedger.linked_personal || []).map((p) => p.id)]
           : [currentLedger.id];
       const results = await Promise.all(cluster.map((id) => api.get(`/categories?ledger_id=${id}`)));
-      setCategories(mergeCategoriesById(results.map((r) => r.data || [])));
+      const flat = results.flatMap((r) => (r.data || []) as Category[]);
+      setAllCategoriesFlat(flat);
     } catch (err) {
       console.error('Failed to load categories', err);
     }
@@ -192,7 +201,10 @@ export default function Transactions() {
         offset: String(reset ? 0 : offset),
       });
       if (typeFilter) params.set('type', typeFilter);
-      if (categoryFilter) params.set('category_id', categoryFilter);
+      if (categoryMergeKey) {
+        const g = categoryGroups.get(categoryMergeKey);
+        if (g?.ids?.length) params.set('category_ids', g.ids.join(','));
+      }
       if (startDate) params.set('start_date', startDate);
       if (endDate) params.set('end_date', endDate);
       if (debouncedSearch) params.set('q', debouncedSearch);
@@ -231,10 +243,14 @@ export default function Transactions() {
   }, [currentLedger?.id, currentLedger?.type, linkedKey]);
 
   useEffect(() => {
+    setCategoryMergeKey('');
+  }, [currentLedger?.id]);
+
+  useEffect(() => {
     if (currentLedger) {
       load(true);
     }
-  }, [currentLedger?.id, typeFilter, categoryFilter, startDate, endDate, debouncedSearch]);
+  }, [currentLedger?.id, typeFilter, categoryMergeKey, categoryGroups, startDate, endDate, debouncedSearch]);
 
   useEffect(() => {
     if (!startDate || !endDate) {
@@ -260,11 +276,11 @@ export default function Transactions() {
 
   const hasMore = txs.length < total;
   const activeFilterCount =
-    [typeFilter, categoryFilter, startDate, endDate, debouncedSearch].filter(Boolean).length;
+    [typeFilter, categoryMergeKey, startDate, endDate, debouncedSearch].filter(Boolean).length;
 
   const clearFilters = () => {
     setTypeFilter('');
-    setCategoryFilter('');
+    setCategoryMergeKey('');
     setStartDate('');
     setEndDate('');
     setBillMonth('');
@@ -405,23 +421,19 @@ export default function Transactions() {
               <option value="expense">{t('transactions:typeExpense')}</option>
               <option value="income">{t('transactions:typeIncome')}</option>
             </Select>
-            <Select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+            <Select value={categoryMergeKey} onChange={(e) => setCategoryMergeKey(e.target.value)}>
               <option value="">{t('transactions:categoryAll')}</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {categoryLabel(c)}（{c.type === 'expense' ? t('transactions:categoryTypeExpense') : t('transactions:categoryTypeIncome')}）
+              {mergedCategorySelectOptions.map((row) => (
+                <option key={row.key} value={row.key}>
+                  {row.label}
                 </option>
               ))}
             </Select>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <input
-                type="month"
-                title={t('transactions:filterByMonth')}
-                aria-label={t('transactions:filterByMonth')}
-                max={maxBillMonth}
+              <LocaleMonthField
                 value={billMonth}
-                onChange={(e) => {
-                  const v = e.target.value;
+                max={maxBillMonth}
+                onChange={(v) => {
                   setBillMonth(v);
                   if (v) {
                     const b = boundsForYearMonth(v);
@@ -434,20 +446,10 @@ export default function Transactions() {
                     setEndDate('');
                   }
                 }}
-                className="h-10 px-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-xs font-tabular text-[var(--color-text)] outline-none focus:border-[var(--color-brand)] [color-scheme:dark]"
+                className="h-10 text-xs"
               />
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="h-10 px-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-xs font-tabular text-[var(--color-text)] outline-none focus:border-[var(--color-brand)]"
-              />
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="h-10 px-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-xs font-tabular text-[var(--color-text)] outline-none focus:border-[var(--color-brand)]"
-              />
+              <LocaleDateField value={startDate} onChange={setStartDate} max={endDate || undefined} className="text-xs" />
+              <LocaleDateField value={endDate} onChange={setEndDate} min={startDate || undefined} className="text-xs" />
             </div>
           </div>
           {activeFilterCount > 0 && (
@@ -508,7 +510,7 @@ export default function Transactions() {
                   </div>
                   <ul className="divide-y divide-[var(--color-border)]">
                     {list.map((tx) => {
-                      const cat = categoryMap[tx.category_id];
+                      const cat = categoryEntityById[tx.category_id];
                       const subName =
                         tx.ledger_id && tx.ledger_id !== currentLedger.id
                           ? ledgers.find((l) => l.id === tx.ledger_id)?.name
@@ -707,13 +709,13 @@ export default function Transactions() {
         {deleting && (
           <div className="flex items-center gap-3 p-3 rounded-[var(--radius-md)] bg-[var(--color-surface-muted)]">
             <CategoryIcon
-              name={categoryMap[deleting.category_id]?.icon}
-              color={categoryMap[deleting.category_id]?.color}
+              name={categoryEntityById[deleting.category_id]?.icon}
+              color={categoryEntityById[deleting.category_id]?.color}
               size={36}
             />
             <div className="flex-1 min-w-0">
               <p className="text-sm text-[var(--color-text)]">
-                {categoryLabel(categoryMap[deleting.category_id]) || t('transactions:uncategorized')}
+                {categoryLabel(categoryEntityById[deleting.category_id]) || t('transactions:uncategorized')}
               </p>
               <p className="text-xs text-[var(--color-text-subtle)] truncate">
                 {deleting.note || t('transactions:noNote')}

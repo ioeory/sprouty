@@ -46,5 +46,11 @@
   "passwordMismatch": "New passwords do not match",
   "passwordChanged": "Password updated",
   "passwordMinHint": "At least 6 characters",
-  "passwordTooShort": "Password must be at least 6 characters"
+  "passwordTooShort": "Password must be at least 6 characters",
+  "calendarClear": "Clear",
+  "calendarToday": "Today",
+  "calendarThisMonth": "This month",
+  "calendarPickDate": "Pick a date",
+  "calendarPickMonth": "Pick a month",
+  "calendarWeekdays": ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]
 }

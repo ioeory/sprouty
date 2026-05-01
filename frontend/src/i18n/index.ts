@@ -100,6 +100,14 @@ void i18n
     interpolation: { escapeValue: false },
   });
 
+function syncDocumentLang(lng: string) {
+  document.documentElement.lang = lng === 'en' ? 'en' : 'zh-CN';
+}
+syncDocumentLang(i18n.language);
+i18n.on('languageChanged', (lng) => {
+  syncDocumentLang(lng);
+});
+
 export function setAppLocale(lng: 'zh-CN' | 'en') {
   void i18n.changeLanguage(lng);
 }

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Wallet, Trash2 } from 'lucide-react';
 import api from '../api/client';
 import { formatLocalYearMonth } from '../lib/dateLocal';
+import { LocaleMonthField } from './LocalePickers';
 import { Modal, Button, Select, cn } from './ui';
 
 export interface ProjectBudgetInitial {
@@ -168,11 +169,13 @@ export default function ProjectBudgetModal({ open, project, onClose, onSuccess }
             {mode === 'monthly' && (
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-[var(--color-text-muted)]">{t('monthApplyLabel')}</label>
-                <input
-                  type="month"
+                <LocaleMonthField
+                  allowClear={false}
                   value={yearMonth}
-                  onChange={(e) => setYearMonth(e.target.value)}
-                  className="w-full h-10 px-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] text-sm outline-none focus:border-[var(--color-brand)] focus:ring-2 focus:ring-[var(--color-brand)]/20"
+                  onChange={(v) => {
+                    if (v) setYearMonth(v);
+                  }}
+                  className="w-full h-10 px-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-sm outline-none focus:border-[var(--color-brand)] focus:ring-2 focus:ring-[var(--color-brand)]/20"
                 />
                 <p className="text-[11px] text-[var(--color-text-subtle)]">{t('monthApplyHint')}</p>
               </div>

@@ -422,8 +422,15 @@ func GetTransactions(c *gin.Context) {
 	if t := c.Query("type"); t != "" {
 		query = query.Where("type = ?", t)
 	}
-	if cid := c.Query("category_id"); cid != "" {
-		query = query.Where("category_id = ?", cid)
+	if rawCat := strings.TrimSpace(c.Query("category_ids")); rawCat != "" {
+		ids := parseUUIDList(rawCat)
+		if len(ids) > 0 {
+			query = query.Where("category_id IN ?", ids)
+		}
+	} else if cid := strings.TrimSpace(c.Query("category_id")); cid != "" {
+		if id, err := uuid.Parse(cid); err == nil {
+			query = query.Where("category_id = ?", id)
+		}
 	}
 	if start := c.Query("start_date"); start != "" {
 		if ts, err := time.Parse("2006-01-02", start); err == nil {
