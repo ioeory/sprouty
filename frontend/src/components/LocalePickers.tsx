@@ -22,39 +22,40 @@ function clampYm(y: number, m: number): { y: number; m: number } {
   return { y, m };
 }
 
-/** zh-CN: month picker with Chinese labels (replaces native month input). */
-export function LocaleMonthField({
-  value,
-  onChange,
-  max,
-  min,
-  className,
-  /** Show 「清除」 in zh picker (default true). Set false for contexts where empty month is invalid (e.g. dashboard). */
-  allowClear = true,
-}: {
+type MonthFieldBase = {
   value: string;
   onChange: (ym: string) => void;
   max?: string;
   min?: string;
   className?: string;
   allowClear?: boolean;
-}) {
-  const { i18n, t } = useTranslation('common');
-  const zh = i18n.language.startsWith('zh');
+};
 
-  if (!zh) {
-    return (
-      <input
-        type="month"
-        lang="en"
-        value={value}
-        max={max}
-        min={min}
-        onChange={(e) => onChange(e.target.value)}
-        className={className}
-      />
-    );
-  }
+/** Native month input (non-zh). Own component so parent does not conditionally call hooks. */
+function LocaleMonthFieldNative({ value, onChange, max, min, className }: MonthFieldBase) {
+  return (
+    <input
+      type="month"
+      lang="en"
+      value={value}
+      max={max}
+      min={min}
+      onChange={(e) => onChange(e.target.value)}
+      className={className}
+    />
+  );
+}
+
+/** zh-CN month grid — hooks live only here; stable across renders of this component type. */
+function LocaleMonthFieldZh({
+  value,
+  onChange,
+  max,
+  min,
+  className,
+  allowClear = true,
+}: MonthFieldBase) {
+  const { t } = useTranslation('common');
 
   const parsed = value.match(/^(\d{4})-(\d{2})$/);
   const vy = parsed ? parseInt(parsed[1], 10) : new Date().getFullYear();
@@ -74,8 +75,9 @@ export function LocaleMonthField({
   const wrapRef = useCloseOnOutside(open, () => setOpen(false));
 
   useEffect(() => {
-    if (parsed) {
-      setViewY(parseInt(parsed[1], 10));
+    const m = value.match(/^(\d{4})-(\d{2})$/);
+    if (m) {
+      setViewY(parseInt(m[1], 10));
     }
   }, [value]);
 
@@ -190,6 +192,18 @@ export function LocaleMonthField({
   );
 }
 
+/**
+ * Month field: delegates to native input or Chinese UI in **separate child components**
+ * so hook counts never change when i18n language toggles (fixes React #310).
+ */
+export function LocaleMonthField(props: MonthFieldBase) {
+  const { i18n } = useTranslation('common');
+  if (i18n.language.startsWith('zh')) {
+    return <LocaleMonthFieldZh {...props} />;
+  }
+  return <LocaleMonthFieldNative {...props} />;
+}
+
 function isoFromParts(y: number, m: number, d: number): string {
   return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 }
@@ -204,36 +218,30 @@ function parseIsoDate(s: string): { y: number; m: number; d: number } | null {
   return { y, m: mo, d };
 }
 
-/** zh-CN: date picker with Chinese weekday headers and labels. */
-export function LocaleDateField({
-  value,
-  onChange,
-  max,
-  min,
-  className,
-}: {
+type DateFieldBase = {
   value: string;
   onChange: (ymd: string) => void;
   max?: string;
   min?: string;
   className?: string;
-}) {
-  const { i18n, t } = useTranslation('common');
-  const zh = i18n.language.startsWith('zh');
+};
 
-  if (!zh) {
-    return (
-      <input
-        type="date"
-        lang="en"
-        value={value}
-        max={max}
-        min={min}
-        onChange={(e) => onChange(e.target.value)}
-        className={className}
-      />
-    );
-  }
+function LocaleDateFieldNative({ value, onChange, max, min, className }: DateFieldBase) {
+  return (
+    <input
+      type="date"
+      lang="en"
+      value={value}
+      max={max}
+      min={min}
+      onChange={(e) => onChange(e.target.value)}
+      className={className}
+    />
+  );
+}
+
+function LocaleDateFieldZh({ value, onChange, max, min, className }: DateFieldBase) {
+  const { t } = useTranslation('common');
 
   const p = value ? parseIsoDate(value) : null;
   const now = new Date();
@@ -249,7 +257,7 @@ export function LocaleDateField({
       setViewY(p.y);
       setViewM(p.m);
     }
-  }, [value]);
+  }, [value, p]);
 
   const label = useMemo(() => {
     if (!value || !p) return t('calendarPickDate');
@@ -397,4 +405,12 @@ export function LocaleDateField({
 function formatLocalToday(): string {
   const n = new Date();
   return isoFromParts(n.getFullYear(), n.getMonth() + 1, n.getDate());
+}
+
+export function LocaleDateField(props: DateFieldBase) {
+  const { i18n } = useTranslation('common');
+  if (i18n.language.startsWith('zh')) {
+    return <LocaleDateFieldZh {...props} />;
+  }
+  return <LocaleDateFieldNative {...props} />;
 }
