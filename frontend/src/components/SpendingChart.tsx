@@ -2,14 +2,16 @@ import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { PieChart as PieIcon } from 'lucide-react';
-import { EmptyState } from './ui';
+import { EmptyState, cn } from './ui';
 
-interface PieDatum {
+export interface PieDatum {
   name: string;
   value: number;
   color: string;
   /** Present for dashboard category slices — stable list keys */
   category_id?: string;
+  /** All physical category UUIDs when slices are merged by semantics */
+  category_ids?: string[];
   name_zh?: string;
   name_en?: string;
   /** When set, tooltip shows this as a second line (e.g. merged category names) */
@@ -21,9 +23,12 @@ interface Props {
   totalLabel?: string;
   emptyTitle?: string;
   emptyDescription?: string;
+  /** When set, pie segments and legend rows become clickable (e.g. category drill-down). */
+  onSliceClick?: (row: PieDatum) => void;
 }
 
-const OTHER_ID = '__pie_other__';
+export const PIE_OTHER_CATEGORY_ID = '__pie_other__';
+const OTHER_ID = PIE_OTHER_CATEGORY_ID;
 const OTHER_COLOR = '#64748b';
 
 /** Shares below this fraction of total are merged into one「其他」slice so the ring stays readable. */
@@ -40,6 +45,15 @@ function aggregateSmallSlices(rows: PieDatum[], otherLabel: string): PieDatum[] 
   const main: PieDatum[] = [];
   let otherSum = 0;
   const otherNames: string[] = [];
+  const otherCategoryIds = new Set<string>();
+
+  const collectIds = (d: PieDatum) => {
+    if (d.category_ids?.length) {
+      d.category_ids.forEach((id) => otherCategoryIds.add(id));
+    } else if (d.category_id && d.category_id !== OTHER_ID) {
+      otherCategoryIds.add(d.category_id);
+    }
+  };
 
   for (const d of sorted) {
     const share = d.value / total;
@@ -47,6 +61,7 @@ function aggregateSmallSlices(rows: PieDatum[], otherLabel: string): PieDatum[] 
       main.push(d);
     } else {
       otherSum += d.value;
+      collectIds(d);
       if (otherNames.length < 8) otherNames.push(d.name);
     }
   }
@@ -56,11 +71,13 @@ function aggregateSmallSlices(rows: PieDatum[], otherLabel: string): PieDatum[] 
       otherNames.length > 0
         ? otherNames.join('、') + (sorted.filter((d) => d.value / total < MIN_SHARE_FOR_OWN_SLICE).length > otherNames.length ? '…' : '')
         : undefined;
+    const mergedOtherIds = otherCategoryIds.size > 0 ? [...otherCategoryIds] : undefined;
     main.push({
       name: otherLabel,
       value: otherSum,
       color: OTHER_COLOR,
       category_id: OTHER_ID,
+      category_ids: mergedOtherIds,
       detail,
     });
   }
@@ -69,12 +86,14 @@ function aggregateSmallSlices(rows: PieDatum[], otherLabel: string): PieDatum[] 
   if (main.length === 0 && sorted.length > 0) {
     const names = sorted.slice(0, 10).map((d) => d.name);
     const detailStr = names.join('、') + (sorted.length > 10 ? '…' : '');
+    sorted.forEach(collectIds);
     return [
       {
         name: otherLabel,
         value: total,
         color: OTHER_COLOR,
         category_id: OTHER_ID,
+        category_ids: otherCategoryIds.size > 0 ? [...otherCategoryIds] : undefined,
         detail: detailStr,
       },
     ];
@@ -92,6 +111,7 @@ export default function SpendingChart({
   totalLabel,
   emptyTitle,
   emptyDescription,
+  onSliceClick,
 }: Props) {
   const { t } = useTranslation('dashboard');
   const resolvedTotal = totalLabel ?? t('spendChartTotal');
@@ -130,6 +150,15 @@ export default function SpendingChart({
               animationDuration={600}
               stroke="var(--color-surface)"
               strokeWidth={strokeW}
+              style={{ cursor: onSliceClick ? 'pointer' : undefined }}
+              onClick={
+                onSliceClick
+                  ? (sector: PieDatum & { payload?: PieDatum }, _index: number) => {
+                      const row = (sector.payload ?? sector) as PieDatum;
+                      if (row?.value != null) onSliceClick(row);
+                    }
+                  : undefined
+              }
             >
               {chartData.map((entry, index) => (
                 <Cell
@@ -169,8 +198,21 @@ export default function SpendingChart({
       <ul className="space-y-2 max-h-52 overflow-y-auto pr-1">
         {chartData.map((d, index) => {
           const pct = total > 0 ? (d.value / total) * 100 : 0;
+          const legendKey =
+            (d.category_ids?.length ? d.category_ids.join('-') : d.category_id) ||
+            `legend-${index}-${d.name}`;
           return (
-            <li key={d.category_id || `legend-${index}-${d.name}`} className="flex items-center gap-3">
+            <li
+              key={legendKey}
+              className={cn(
+                'flex items-center gap-3',
+                onSliceClick && d.category_id !== OTHER_ID && 'cursor-pointer hover:opacity-90',
+              )}
+              onClick={() => {
+                if (onSliceClick && d.category_id !== OTHER_ID) onSliceClick(d);
+              }}
+              role={onSliceClick && d.category_id !== OTHER_ID ? 'button' : undefined}
+            >
               <span
                 className="w-2.5 h-2.5 rounded-sm shrink-0"
                 style={{ backgroundColor: d.color || '#a1a1aa' }}

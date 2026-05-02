@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
@@ -25,7 +25,9 @@ import {
   Modal,
   cn,
 } from '../components/ui';
-import SpendingChart from '../components/SpendingChart';
+import SpendingChart, { PIE_OTHER_CATEGORY_ID, type PieDatum } from '../components/SpendingChart';
+import CategoryLedgerDrillModal, { type LedgerDrillRow } from '../components/CategoryLedgerDrillModal';
+import { mergeCategoryStatsForPie } from '../lib/categoryMerge';
 import ProjectFormModal from '../components/ProjectFormModal';
 import { pickCategoryDisplayName } from '../lib/categoryDisplay';
 import ProjectBudgetModal from '../components/ProjectBudgetModal';
@@ -123,6 +125,11 @@ export default function ProjectDetail() {
   const [deleting, setDeleting] = useState<Transaction | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
+  const [categoryDrillOpen, setCategoryDrillOpen] = useState(false);
+  const [categoryDrillTitle, setCategoryDrillTitle] = useState('');
+  const [categoryDrillLoading, setCategoryDrillLoading] = useState(false);
+  const [categoryDrillRows, setCategoryDrillRows] = useState<LedgerDrillRow[]>([]);
+
   const mutableLedgerIds = useMemo(() => new Set(ledgers.map((l) => l.id)), [ledgers]);
 
   const ledgerForTx = useMemo(() => {
@@ -142,13 +149,47 @@ export default function ProjectDetail() {
   const categoryLabel = (c: Category | undefined) =>
     (c && (pickCategoryDisplayName(i18n.language, c.name_zh, c.name_en) || c.name)) || '';
 
-  const chartData = useMemo(
-    () =>
-      catStats.map((d) => ({
-        ...d,
-        name: pickCategoryDisplayName(i18n.language, d.name_zh, d.name_en) || d.name,
-      })),
-    [catStats, i18n.language],
+  const chartData = useMemo(() => {
+    const merged = mergeCategoryStatsForPie(catStats, categories);
+    return merged.map((d) => ({
+      ...d,
+      name: pickCategoryDisplayName(i18n.language, d.name_zh, d.name_en) || d.name,
+    }));
+  }, [catStats, categories, i18n.language]);
+
+  const handleProjectCategorySliceClick = useCallback(
+    async (row: PieDatum) => {
+      if (row.category_id === PIE_OTHER_CATEGORY_ID || !id || !ledgerForTx) return;
+      const ids =
+        row.category_ids && row.category_ids.length > 0
+          ? row.category_ids
+          : row.category_id
+            ? [row.category_id]
+            : [];
+      if (ids.length === 0) return;
+      setCategoryDrillTitle(row.name);
+      setCategoryDrillOpen(true);
+      setCategoryDrillLoading(true);
+      setCategoryDrillRows([]);
+      try {
+        const params = new URLSearchParams();
+        params.set('category_ids', ids.join(','));
+        params.set('period', 'all');
+        params.set('ledger_id', ledgerForTx);
+        params.set('project_id', id);
+        params.set('bypass_tag_filter', 'true');
+        const res = await api.get<{ rows: LedgerDrillRow[] }>(
+          `/dashboard/category-by-ledger?${params.toString()}`,
+        );
+        setCategoryDrillRows(res.data.rows || []);
+      } catch (e) {
+        console.error(e);
+        setCategoryDrillRows([]);
+      } finally {
+        setCategoryDrillLoading(false);
+      }
+    },
+    [id, ledgerForTx],
   );
 
   const load = async () => {
@@ -420,6 +461,7 @@ export default function ProjectDetail() {
               totalLabel={t('chartTotal')}
               emptyTitle={t('chartEmptyTitle')}
               emptyDescription={t('chartEmptyDesc')}
+              onSliceClick={handleProjectCategorySliceClick}
             />
           </div>
         </Card>
@@ -625,6 +667,14 @@ export default function ProjectDetail() {
           </p>
         )}
       </Modal>
+
+      <CategoryLedgerDrillModal
+        open={categoryDrillOpen}
+        onClose={() => setCategoryDrillOpen(false)}
+        title={categoryDrillTitle}
+        loading={categoryDrillLoading}
+        rows={categoryDrillRows}
+      />
     </div>
   );
 }

@@ -113,6 +113,7 @@ func main() {
 		// Statistics routes (dual routing for compatibility)
 		protected.GET("/dashboard/summary", api.GetDashboardSummary)
 		protected.GET("/statistics/summary", api.GetDashboardSummary)
+		protected.GET("/dashboard/category-by-ledger", api.GetDashboardCategoryByLedger)
 
 		// Bot routes (Phase 4)
 		protected.GET("/bot/binding-code", api.GetBindingCode)

@@ -82,5 +82,10 @@
   "chartOther": "Other (small amounts)",
   "spendChartTotal": "Total spend",
   "spendChartEmptyTitle": "No data yet",
-  "spendChartEmptyDesc": "Add an expense to see the breakdown"
+  "spendChartEmptyDesc": "Add an expense to see the breakdown",
+  "categoryDrillLoading": "Loading…",
+  "categoryDrillEmpty": "No per-ledger breakdown for this selection",
+  "categoryDrillColLedger": "Ledger",
+  "categoryDrillColAmount": "Amount",
+  "categoryDrillColCount": "Entries"
 }

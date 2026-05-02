@@ -1132,6 +1132,186 @@ func GetDashboardSummary(c *gin.Context) {
 	})
 }
 
+// GetDashboardCategoryByLedger returns expense totals and transaction counts per ledger
+// for the given category_ids, using the same ledger cluster, date window, and tag
+// exclusion semantics as GET /dashboard/summary.
+func GetDashboardCategoryByLedger(c *gin.Context) {
+	userID, err := currentUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid session"})
+		return
+	}
+
+	categoryIDs := parseUUIDList(c.Query("category_ids"))
+	if len(categoryIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "category_ids is required"})
+		return
+	}
+
+	period := c.DefaultQuery("period", "month")
+	switch period {
+	case "month", "year", "all":
+	default:
+		period = "month"
+	}
+
+	cl := time.Now()
+	loc := cl.Location()
+
+	ymParam := c.Query("year_month")
+	targetYear := cl.Year()
+	targetMonth := cl.Month()
+	if ymParam != "" {
+		if t, err := time.ParseInLocation("2006-01", ymParam, loc); err == nil {
+			targetYear = t.Year()
+			targetMonth = t.Month()
+		}
+	}
+	if y := c.Query("year"); y != "" {
+		if yy, err := strconv.Atoi(y); err == nil && yy > 1970 && yy < 3000 {
+			targetYear = yy
+		}
+	}
+
+	firstOfMonth := time.Date(targetYear, targetMonth, 1, 0, 0, 0, 0, loc)
+	lastOfMonth := firstOfMonth.AddDate(0, 1, 0).Add(-time.Second)
+	firstOfYear := time.Date(targetYear, 1, 1, 0, 0, 0, 0, loc)
+	lastOfYear := time.Date(targetYear, 12, 31, 23, 59, 59, 0, loc)
+
+	var ledgerIDs []uuid.UUID
+	scope := c.Query("scope")
+	if scope == "all" {
+		ledgerIDs = userLedgerIDs(userID)
+	} else {
+		ledgerIDStr := c.Query("ledger_id")
+		if ledgerIDStr == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "ledger_id is required"})
+			return
+		}
+		lid, err := uuid.Parse(ledgerIDStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ledger_id"})
+			return
+		}
+		if !userCanAccessLedger(userID, lid) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "no access to this ledger"})
+			return
+		}
+		ledgerIDs = []uuid.UUID{lid}
+		if len(ledgerIDs) == 1 {
+			var fam models.Ledger
+			if err := service.DB.First(&fam, "id = ?", ledgerIDs[0]).Error; err == nil && fam.Type == "family" {
+				ledgerIDs = expandFamilyLinkedCluster(ledgerIDs[0])
+			}
+		}
+	}
+
+	bypassTags := c.Query("bypass_tag_filter") == "true"
+	manualExcludeTagIDs := parseUUIDList(c.Query("exclude_tag_ids"))
+	var excludedTagIDs []uuid.UUID
+	if !bypassTags && len(ledgerIDs) > 0 {
+		var defaultTags []models.Tag
+		service.DB.Where("ledger_id IN ? AND exclude_from_stats = TRUE", ledgerIDs).Find(&defaultTags)
+		seen := map[uuid.UUID]bool{}
+		for _, t := range defaultTags {
+			if !seen[t.ID] {
+				seen[t.ID] = true
+				excludedTagIDs = append(excludedTagIDs, t.ID)
+			}
+		}
+		if len(manualExcludeTagIDs) > 0 {
+			var manual []models.Tag
+			service.DB.Where("id IN ? AND ledger_id IN ?", manualExcludeTagIDs, ledgerIDs).Find(&manual)
+			for _, t := range manual {
+				if !seen[t.ID] {
+					seen[t.ID] = true
+					excludedTagIDs = append(excludedTagIDs, t.ID)
+				}
+			}
+		}
+	}
+
+	applyTagExclusion := func(tx *gorm.DB, txAlias string) *gorm.DB {
+		if len(excludedTagIDs) == 0 {
+			return tx
+		}
+		col := "id"
+		if txAlias != "" {
+			col = txAlias + ".id"
+		}
+		return tx.Where("NOT EXISTS (SELECT 1 FROM transaction_tags tt WHERE tt.transaction_id = "+
+			col+" AND tt.tag_id IN ?)", excludedTagIDs)
+	}
+
+	applyWindow := func(tx *gorm.DB, dateCol string) *gorm.DB {
+		switch period {
+		case "year":
+			return tx.Where(dateCol+" >= ? AND "+dateCol+" <= ?", firstOfYear, lastOfYear)
+		case "all":
+			return tx
+		default:
+			return tx.Where(dateCol+" >= ? AND "+dateCol+" <= ?", firstOfMonth, lastOfMonth)
+		}
+	}
+
+	if len(ledgerIDs) == 0 {
+		c.JSON(http.StatusOK, gin.H{"rows": []any{}})
+		return
+	}
+
+	var projectUUID *uuid.UUID
+	if pidStr := strings.TrimSpace(c.Query("project_id")); pidStr != "" {
+		pid, err := uuid.Parse(pidStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid project_id"})
+			return
+		}
+		var proj models.Project
+		if err := service.DB.First(&proj, "id = ?", pid).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+			return
+		}
+		if !userCanAccessLedger(userID, proj.LedgerID) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "no access to this project"})
+			return
+		}
+		projectUUID = &pid
+	}
+
+	type aggRow struct {
+		LedgerID   uuid.UUID `gorm:"column:ledger_id"`
+		LedgerName string    `gorm:"column:ledger_name"`
+		Amount     float64   `gorm:"column:amount"`
+		Cnt        int64     `gorm:"column:cnt"`
+	}
+	var aggRows []aggRow
+	q := service.DB.Model(&models.Transaction{}).
+		Select("transactions.ledger_id as ledger_id, MAX(ledgers.name) as ledger_name, COALESCE(SUM(transactions.amount), 0) as amount, COUNT(*) as cnt").
+		Joins("JOIN ledgers ON ledgers.id = transactions.ledger_id").
+		Where("transactions.ledger_id IN ? AND transactions.type = 'expense' AND transactions.category_id IN ?", ledgerIDs, categoryIDs)
+	if projectUUID != nil {
+		q = q.Where("transactions.project_id = ?", *projectUUID)
+	}
+	q = applyWindow(q, "transactions.date")
+	q = applyTagExclusion(q, "transactions")
+	if err := q.Group("transactions.ledger_id").Order("amount DESC").Scan(&aggRows).Error; err != nil {
+		log.Printf("GetDashboardCategoryByLedger: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "aggregation failed"})
+		return
+	}
+
+	out := make([]gin.H, 0, len(aggRows))
+	for _, r := range aggRows {
+		out = append(out, gin.H{
+			"ledger_id":   r.LedgerID.String(),
+			"ledger_name": r.LedgerName,
+			"amount":      r.Amount,
+			"count":       r.Cnt,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"rows": out})
+}
+
 // parseUUIDList splits a comma-separated query param into valid UUIDs,
 // silently dropping malformed entries (the dashboard should never 400 on a
 // typo coming from a URL the user can freely edit).

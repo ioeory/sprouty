@@ -82,5 +82,10 @@
   "chartOther": "其他（小额合计）",
   "spendChartTotal": "支出合计",
   "spendChartEmptyTitle": "暂无数据",
-  "spendChartEmptyDesc": "记录第一笔开销后，这里会展示分类占比"
+  "spendChartEmptyDesc": "记录第一笔开销后，这里会展示分类占比",
+  "categoryDrillLoading": "正在加载…",
+  "categoryDrillEmpty": "暂无按账本拆分的数据",
+  "categoryDrillColLedger": "账本",
+  "categoryDrillColAmount": "金额",
+  "categoryDrillColCount": "笔数"
 }

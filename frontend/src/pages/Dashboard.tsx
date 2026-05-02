@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -37,6 +37,9 @@ import {
   type MergedTagGroup,
 } from '../lib/mergeClusterTags';
 import { pickCategoryDisplayName } from '../lib/categoryDisplay';
+import { mergeCategoryStatsForPie } from '../lib/categoryMerge';
+import CategoryLedgerDrillModal, { type LedgerDrillRow } from '../components/CategoryLedgerDrillModal';
+import { PIE_OTHER_CATEGORY_ID, type PieDatum } from '../components/SpendingChart';
 
 interface CategoryStat {
   name: string;
@@ -231,6 +234,11 @@ export default function Dashboard() {
   /** Flat tags from cluster fetch (includes ledger_id for merge + tooltips). */
   const [tagFlat, setTagFlat] = useState<TagWithLedger[]>([]);
 
+  const [categoryDrillOpen, setCategoryDrillOpen] = useState(false);
+  const [categoryDrillTitle, setCategoryDrillTitle] = useState('');
+  const [categoryDrillLoading, setCategoryDrillLoading] = useState(false);
+  const [categoryDrillRows, setCategoryDrillRows] = useState<LedgerDrillRow[]>([]);
+
   const categoryMap = React.useMemo(() => {
     const map: Record<string, Category> = {};
     categories.forEach((c) => (map[c.id] = c));
@@ -265,11 +273,12 @@ export default function Dashboard() {
           : summary?.ledger_stats;
     const raw = bundle || [];
     if (groupBy !== 'category') return raw;
-    return raw.map((d) => ({
+    const merged = mergeCategoryStatsForPie(raw, categories);
+    return merged.map((d) => ({
       ...d,
       name: pickCategoryDisplayName(i18n.language, d.name_zh, d.name_en) || d.name,
     }));
-  }, [summary, groupBy, i18n.language]);
+  }, [summary, groupBy, i18n.language, categories]);
 
   const load = async (ledger: Ledger) => {
     try {
@@ -382,6 +391,51 @@ export default function Dashboard() {
       return Array.from(next);
     });
   };
+
+  const handleCategorySliceClick = useCallback(
+    async (row: PieDatum) => {
+      if (row.category_id === PIE_OTHER_CATEGORY_ID) return;
+      const ids =
+        row.category_ids && row.category_ids.length > 0
+          ? row.category_ids
+          : row.category_id
+            ? [row.category_id]
+            : [];
+      if (ids.length === 0) return;
+      setCategoryDrillTitle(row.name);
+      setCategoryDrillOpen(true);
+      setCategoryDrillLoading(true);
+      setCategoryDrillRows([]);
+      try {
+        const params = new URLSearchParams();
+        params.set('category_ids', ids.join(','));
+        params.set('period', period);
+        if (period === 'month') params.set('year_month', selectedYearMonth);
+        else if (period === 'year') params.set('year', String(selectedYear));
+        if (scope === 'all') params.set('scope', 'all');
+        else if (currentLedger) params.set('ledger_id', currentLedger.id);
+        if (bypassTagFilter) params.set('bypass_tag_filter', 'true');
+        else if (manualExcludeTagIds.length > 0) params.set('exclude_tag_ids', manualExcludeTagIds.join(','));
+        const res = await api.get<{ rows: LedgerDrillRow[] }>(
+          `/dashboard/category-by-ledger?${params.toString()}`,
+        );
+        setCategoryDrillRows(res.data.rows || []);
+      } catch (e) {
+        console.error(e);
+        setCategoryDrillRows([]);
+      } finally {
+        setCategoryDrillLoading(false);
+      }
+    },
+    [
+      period,
+      selectedYearMonth,
+      scope,
+      currentLedger,
+      bypassTagFilter,
+      manualExcludeTagIds,
+    ],
+  );
 
   if (!currentLedger) {
     return (
@@ -817,6 +871,7 @@ export default function Dashboard() {
                     ? t('dashboard:emptyHintLedger')
                     : t('dashboard:emptyHintCategory')
               }
+              onSliceClick={groupBy === 'category' ? handleCategorySliceClick : undefined}
             />
           </div>
         </Card>
@@ -908,6 +963,14 @@ export default function Dashboard() {
           onSuccess={() => load(currentLedger)}
         />
       )}
+
+      <CategoryLedgerDrillModal
+        open={categoryDrillOpen}
+        onClose={() => setCategoryDrillOpen(false)}
+        title={categoryDrillTitle}
+        loading={categoryDrillLoading}
+        rows={categoryDrillRows}
+      />
     </div>
   );
 }

@@ -56,11 +56,12 @@ func dropLegacyCategoryNameColumn() {
 	}
 }
 
-// BackfillEnglishCategoryNames sets name_en from seed catalog where name_zh matches.
+// BackfillEnglishCategoryNames sets name_en from seed catalog where name_zh matches,
+// only for rows that still have no English label (does not overwrite user edits).
 func BackfillEnglishCategoryNames() {
 	for _, s := range ledgerCategorySeeds {
 		if err := DB.Model(&models.Category{}).
-			Where("deleted_at IS NULL AND type = ? AND sort_order = ? AND is_system = ? AND name_zh = ?",
+			Where("deleted_at IS NULL AND type = ? AND sort_order = ? AND is_system = ? AND name_zh = ? AND BTRIM(COALESCE(name_en, '')) = ''",
 				s.kind, s.sort, s.system, s.nameZh).
 			Update("name_en", s.nameEn).Error; err != nil {
 			log.Printf("BackfillEnglishCategoryNames %s: %v", s.nameZh, err)
