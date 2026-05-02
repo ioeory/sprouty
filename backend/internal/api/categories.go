@@ -174,8 +174,19 @@ func UpdateCategory(c *gin.Context) {
 	if req.SortOrder != nil {
 		cat.SortOrder = *req.SortOrder
 	}
-	if err := service.DB.Save(&cat).Error; err != nil {
+	// Use Updates (not Save) so we do not rewrite created_at; reduces write amplification vs remote Postgres.
+	if err := service.DB.Model(&models.Category{}).Where("id = ?", cat.ID).Updates(map[string]interface{}{
+		"name_zh":    cat.NameZh,
+		"name_en":    cat.NameEn,
+		"icon":       cat.Icon,
+		"color":      cat.Color,
+		"sort_order": cat.SortOrder,
+	}).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update"})
+		return
+	}
+	if err := service.DB.First(&cat, "id = ?", cat.ID).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reload category"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{

@@ -4,13 +4,16 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 	"sprouts-self/backend/internal/models"
 
 	"github.com/google/uuid"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	"gorm.io/gorm/logger"
 )
 
 var DB *gorm.DB
@@ -146,6 +149,43 @@ func dropLegacyCategoryKeywordColumn() {
 	}
 }
 
+// gormSlowThreshold returns how long a query must run before GORM logs it as slow.
+// Default 500ms; remote Postgres (Docker → cloud) often exceeds 200ms for trivial updates.
+func gormSlowThreshold() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("GORM_SLOW_THRESHOLD_MS"))
+	if raw == "" {
+		return 500 * time.Millisecond
+	}
+	ms, err := strconv.Atoi(raw)
+	if err != nil || ms < 0 {
+		return 500 * time.Millisecond
+	}
+	return time.Duration(ms) * time.Millisecond
+}
+
+func configureSQLPool(gdb *gorm.DB) {
+	sqlDB, err := gdb.DB()
+	if err != nil {
+		log.Printf("configureSQLPool: %v", err)
+		return
+	}
+	maxOpen := 25
+	if v := strings.TrimSpace(os.Getenv("DB_MAX_OPEN_CONNS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxOpen = n
+		}
+	}
+	maxIdle := 5
+	if v := strings.TrimSpace(os.Getenv("DB_MAX_IDLE_CONNS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			maxIdle = n
+		}
+	}
+	sqlDB.SetMaxOpenConns(maxOpen)
+	sqlDB.SetMaxIdleConns(maxIdle)
+	sqlDB.SetConnMaxLifetime(time.Hour)
+}
+
 func InitDB() {
 	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable TimeZone=Asia/Shanghai",
 		os.Getenv("DB_HOST"),
@@ -155,10 +195,21 @@ func InitDB() {
 		os.Getenv("DB_PORT"),
 	)
 
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	gormLogger := logger.New(log.New(os.Stdout, "\r\n", log.LstdFlags), logger.Config{
+		SlowThreshold:             gormSlowThreshold(),
+		LogLevel:                  logger.Warn,
+		IgnoreRecordNotFoundError: true,
+		Colorful:                  false,
+	})
+
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
+		Logger: gormLogger,
+	})
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
 	}
+
+	configureSQLPool(db)
 
 	// Legacy categories.name -> name_zh/name_en; legacy category_keywords.keyword -> zh/en.
 	prepareCategoryBilingualNames(db)
