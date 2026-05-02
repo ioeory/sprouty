@@ -13,6 +13,7 @@
   "filter": "筛选",
   "add": "新增",
   "totalCount": "共 {{total}} 条",
+  "pageSizeLabel": "每批加载",
   "loadedCount": "已加载 {{count}}",
   "viewExpense": "本视图支出",
   "viewIncome": "本视图收入",

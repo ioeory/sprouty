@@ -13,6 +13,7 @@
   "filter": "Filter",
   "add": "Add",
   "totalCount": "{{total}} total",
+  "pageSizeLabel": "Per load",
   "loadedCount": "{{count}} loaded",
   "viewExpense": "Expenses (this view)",
   "viewIncome": "Income (this view)",

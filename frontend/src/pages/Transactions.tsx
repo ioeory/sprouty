@@ -75,7 +75,21 @@ function groupByDate(txs: Transaction[]): Array<[string, Transaction[]]> {
     .map(([key, list]) => [key, [...list].sort(byCreatedDesc)] as [string, Transaction[]]);
 }
 
-const PAGE_SIZE = 50;
+const TX_PAGE_SIZE_STORAGE_KEY = 'sprouts_transactions_page_size';
+const PAGE_SIZE_PRESETS = [20, 50, 100, 200] as const;
+const DEFAULT_PAGE_SIZE = 50;
+
+function readStoredPageSize(): number {
+  if (typeof window === 'undefined') return DEFAULT_PAGE_SIZE;
+  try {
+    const raw = localStorage.getItem(TX_PAGE_SIZE_STORAGE_KEY);
+    const n = parseInt(raw || '', 10);
+    if (PAGE_SIZE_PRESETS.includes(n as (typeof PAGE_SIZE_PRESETS)[number])) return n;
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_PAGE_SIZE;
+}
 
 /** 当前用户作为成员可写操作的账本 ID（家庭合并视图下，他人子账流水不在此集合中） */
 function useMutableLedgerIdSet(ledgers: { id: string }[]) {
@@ -142,6 +156,7 @@ export default function Transactions() {
   const [deleting, setDeleting] = useState<Transaction | null>(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [txFeedback, setTxFeedback] = useState('');
+  const [pageSize, setPageSize] = useState(readStoredPageSize);
 
   const categoryEntityById = useMemo(() => {
     const map: Record<string, Category> = {};
@@ -191,13 +206,14 @@ export default function Transactions() {
     }
   };
 
-  const load = async (reset = true) => {
+  const load = async (reset = true, limitOverride?: number) => {
     if (!currentLedger) return;
+    const limit = limitOverride ?? pageSize;
     setLoading(true);
     try {
       const params = new URLSearchParams({
         ledger_id: currentLedger.id,
-        limit: String(PAGE_SIZE),
+        limit: String(limit),
         offset: String(reset ? 0 : offset),
       });
       if (typeFilter) params.set('type', typeFilter);
@@ -376,26 +392,54 @@ export default function Transactions() {
 
       {/* Totals */}
       <Card padding="sm">
-        <div className="grid grid-cols-3 divide-x divide-[var(--color-border)]">
-          <div className="pr-3">
-            <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider">
-              {t('transactions:totalCount', { total })}
-            </p>
-            <p className="text-sm font-medium text-[var(--color-text)] mt-0.5">
-              {t('transactions:loadedCount', { count: txs.length })}
-            </p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+          <div className="grid grid-cols-3 flex-1 min-w-0 divide-x divide-[var(--color-border)]">
+            <div className="pr-3">
+              <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider">
+                {t('transactions:totalCount', { total })}
+              </p>
+              <p className="text-sm font-medium text-[var(--color-text)] mt-0.5">
+                {t('transactions:loadedCount', { count: txs.length })}
+              </p>
+            </div>
+            <div className="px-3">
+              <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider">{t('transactions:viewExpense')}</p>
+              <p className="text-sm font-semibold font-tabular text-[var(--color-text)] mt-0.5">
+                ¥{displayExpense.toLocaleString()}
+              </p>
+            </div>
+            <div className="pl-3">
+              <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider">{t('transactions:viewIncome')}</p>
+              <p className="text-sm font-semibold font-tabular text-[var(--color-success)] mt-0.5">
+                ¥{displayIncome.toLocaleString()}
+              </p>
+            </div>
           </div>
-          <div className="px-3">
-            <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider">{t('transactions:viewExpense')}</p>
-            <p className="text-sm font-semibold font-tabular text-[var(--color-text)] mt-0.5">
-              ¥{displayExpense.toLocaleString()}
+          <div className="shrink-0 w-full sm:w-36">
+            <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider mb-1">
+              {t('transactions:pageSizeLabel')}
             </p>
-          </div>
-          <div className="pl-3">
-            <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider">{t('transactions:viewIncome')}</p>
-            <p className="text-sm font-semibold font-tabular text-[var(--color-success)] mt-0.5">
-              ¥{displayIncome.toLocaleString()}
-            </p>
+            <Select
+              value={String(pageSize)}
+              onChange={(e) => {
+                const n = parseInt(e.target.value, 10);
+                if (!PAGE_SIZE_PRESETS.includes(n as (typeof PAGE_SIZE_PRESETS)[number])) return;
+                setPageSize(n);
+                try {
+                  localStorage.setItem(TX_PAGE_SIZE_STORAGE_KEY, String(n));
+                } catch {
+                  /* ignore */
+                }
+                void load(true, n);
+              }}
+              className="h-9 text-xs"
+            >
+              {PAGE_SIZE_PRESETS.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </Select>
           </div>
         </div>
         {(sumExpense !== null || sumIncome !== null) && (
