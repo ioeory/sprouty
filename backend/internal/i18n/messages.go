@@ -17,6 +17,7 @@ var Messages = map[string]Msg{
 	"ledger.promote_requires_unlink_parent":  {ZH: "请先解除本账本作为子账本与家庭账本的关联，再改为家庭账本。", EN: "Unlink this ledger from its parent family book before changing type to family."},
 	"ledger.viewer_read_only": {ZH: "您在此账本为只读成员，无法执行该操作。", EN: "You are a read-only member on this ledger and cannot perform this action."},
 	"ledger.create_failed":       {ZH: "创建账本失败", EN: "Failed to create ledger."},
+	"ledger.delete_requires_unlink_family": {ZH: "请先在本页「成员与关联」中解除所有关联的个人子账本，再删除家庭账本。", EN: "Unlink all personal sub-ledgers from this family book (Members page) before deleting it."},
 	"common.bad_request":         {ZH: "请求无效", EN: "Bad request."},
 	"common.internal_error":      {ZH: "服务器错误", EN: "Internal server error."},
 	"user.locale_invalid":        {ZH: "语言必须是 zh-CN 或 en", EN: "Locale must be zh-CN or en."},

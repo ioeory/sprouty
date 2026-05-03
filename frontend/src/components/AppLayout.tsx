@@ -18,6 +18,7 @@ import {
   PanelLeftOpen,
   Shield,
   Pencil,
+  Trash2,
 } from 'lucide-react';
 import { Sidebar, type NavItem, Button, ThemeToggle, Modal, Input, cn } from './ui';
 import BotIntegrationModal from './BotIntegrationModal';
@@ -89,6 +90,10 @@ export default function AppLayout() {
   const [renameLedgerType, setRenameLedgerType] = useState<'personal' | 'family'>('personal');
   const [renameSaving, setRenameSaving] = useState(false);
   const [renameErr, setRenameErr] = useState('');
+  const [ledgerDeleteOpen, setLedgerDeleteOpen] = useState(false);
+  const [ledgerDeleteInput, setLedgerDeleteInput] = useState('');
+  const [ledgerDeleteLoading, setLedgerDeleteLoading] = useState(false);
+  const [ledgerDeleteErr, setLedgerDeleteErr] = useState('');
   const [renameDefaultBudget, setRenameDefaultBudget] = useState('');
   const [pwdOpen, setPwdOpen] = useState(false);
   const [pwdCurrent, setPwdCurrent] = useState('');
@@ -185,12 +190,16 @@ export default function AppLayout() {
       const res = await api.get('/ledgers');
       setLedgers(res.data || []);
       const storedId = localStorage.getItem('sprouts_ledger_id');
-      const match = (res.data || []).find((l: Ledger) => l.id === storedId);
+      const list = res.data || [];
+      const match = list.find((l: Ledger) => l.id === storedId);
       if (match) {
         setCurrentLedgerState(match);
-      } else if (res.data?.length) {
-        setCurrentLedgerState(res.data[0]);
-        localStorage.setItem('sprouts_ledger_id', res.data[0].id);
+      } else if (list.length) {
+        setCurrentLedgerState(list[0]);
+        localStorage.setItem('sprouts_ledger_id', list[0].id);
+      } else {
+        setCurrentLedgerState(null);
+        localStorage.removeItem('sprouts_ledger_id');
       }
     } catch (err) {
       console.error('Failed to fetch ledgers', err);
@@ -556,7 +565,86 @@ export default function AppLayout() {
                 step={100}
               />
               <p className="text-[11px] text-[var(--color-text-subtle)] leading-relaxed">{t('ledger:defaultBudgetHint')}</p>
+              <div className="pt-4 mt-4 border-t border-[var(--color-border)]">
+                <p className="text-xs text-[var(--color-text-muted)] leading-relaxed mb-3">{t('ledger:deleteLedgerWarning')}</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  leftIcon={<Trash2 size={14} />}
+                  className="border-[var(--color-danger)]/40 text-[var(--color-danger)] hover:bg-[var(--color-danger-soft)]"
+                  onClick={() => {
+                    setLedgerDeleteErr('');
+                    setLedgerDeleteInput('');
+                    setLedgerDeleteOpen(true);
+                  }}
+                >
+                  {t('ledger:deleteLedger')}
+                </Button>
+              </div>
             </div>
+          </Modal>
+        )}
+
+        {ledgerDeleteOpen && currentLedger && (
+          <Modal
+            open={ledgerDeleteOpen}
+            onClose={() => !ledgerDeleteLoading && setLedgerDeleteOpen(false)}
+            title={t('ledger:deleteLedgerTitle')}
+            footer={
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" size="sm" disabled={ledgerDeleteLoading} onClick={() => setLedgerDeleteOpen(false)}>
+                  {t('common:cancel')}
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  loading={ledgerDeleteLoading}
+                  disabled={
+                    ledgerDeleteInput.trim() !== currentLedger.name.trim() || ledgerDeleteLoading
+                  }
+                  onClick={async () => {
+                    if (ledgerDeleteInput.trim() !== currentLedger.name.trim()) return;
+                    setLedgerDeleteLoading(true);
+                    setLedgerDeleteErr('');
+                    try {
+                      await api.delete(`/ledgers/${currentLedger.id}`);
+                      setLedgerDeleteOpen(false);
+                      setRenameOpen(false);
+                      setLedgerDeleteInput('');
+                      await refreshLedgers();
+                      navigate('/');
+                    } catch (e: unknown) {
+                      const msg =
+                        (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+                        t('common:saveFailed');
+                      setLedgerDeleteErr(msg);
+                    } finally {
+                      setLedgerDeleteLoading(false);
+                    }
+                  }}
+                >
+                  {t('ledger:deleteLedgerButton')}
+                </Button>
+              </div>
+            }
+          >
+            {ledgerDeleteErr && (
+              <p className="text-xs text-[var(--color-danger)] mb-3">{ledgerDeleteErr}</p>
+            )}
+            <p className="text-sm text-[var(--color-text)] mb-3">{t('ledger:deleteLedgerTypeName', { name: currentLedger.name })}</p>
+            <Input
+              value={ledgerDeleteInput}
+              onChange={(e) => setLedgerDeleteInput(e.target.value)}
+              placeholder={t('ledger:deleteLedgerConfirmPlaceholder')}
+              autoComplete="off"
+              aria-invalid={
+                ledgerDeleteInput.length > 0 && ledgerDeleteInput.trim() !== currentLedger.name.trim()
+              }
+            />
+            {ledgerDeleteInput.length > 0 && ledgerDeleteInput.trim() !== currentLedger.name.trim() && (
+              <p className="text-[11px] text-[var(--color-danger)] mt-2">{t('ledger:deleteLedgerMismatch')}</p>
+            )}
           </Modal>
         )}
 

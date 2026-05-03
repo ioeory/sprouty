@@ -5,5 +5,12 @@
   "noLedgers": "暂无账本",
   "defaultBudgetLabel": "默认月度总预算",
   "defaultBudgetHint": "未单独设置某月预算时沿用此金额；在仪表盘「设置本月预算」可写仅当月的覆盖值。",
-  "defaultBudgetInvalid": "请输入有效的非负数，或留空以清除默认预算"
+  "defaultBudgetInvalid": "请输入有效的非负数，或留空以清除默认预算",
+  "deleteLedger": "删除账本",
+  "deleteLedgerTitle": "删除账本",
+  "deleteLedgerWarning": "将永久删除该账本下的流水、分类、标签、项目与预算等全部数据，且不可恢复。若当前为家庭账本且仍有关联的个人子账本，请先在「成员」页解除关联。",
+  "deleteLedgerTypeName": "请输入账本名称以确认：{{name}}",
+  "deleteLedgerConfirmPlaceholder": "输入账本全称",
+  "deleteLedgerButton": "永久删除",
+  "deleteLedgerMismatch": "名称与当前账本不一致"
 }

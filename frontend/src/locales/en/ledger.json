@@ -5,5 +5,12 @@
   "noLedgers": "No ledgers",
   "defaultBudgetLabel": "Default monthly budget",
   "defaultBudgetHint": "Used when a month has no specific budget row. Dashboard “monthly budget” sets a per-month override.",
-  "defaultBudgetInvalid": "Enter a valid non-negative number, or leave empty to clear the default"
+  "defaultBudgetInvalid": "Enter a valid non-negative number, or leave empty to clear the default",
+  "deleteLedger": "Delete ledger",
+  "deleteLedgerTitle": "Delete ledger",
+  "deleteLedgerWarning": "This permanently deletes all transactions, categories, tags, projects, and budgets in this ledger. For a family ledger that still has linked personal books, unlink them on Members first.",
+  "deleteLedgerTypeName": "Type the ledger name to confirm: {{name}}",
+  "deleteLedgerConfirmPlaceholder": "Exact ledger name",
+  "deleteLedgerButton": "Delete permanently",
+  "deleteLedgerMismatch": "Name does not match this ledger"
 }

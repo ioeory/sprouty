@@ -272,6 +272,92 @@ func UpdateLedger(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// DeleteLedger permanently removes a ledger and dependent data (owner only).
+func DeleteLedger(c *gin.Context) {
+	userUUID, err := currentUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid session"})
+		return
+	}
+	ledgerID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ledger id"})
+		return
+	}
+	var ledger models.Ledger
+	if err := service.DB.First(&ledger, "id = ?", ledgerID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "ledger not found"})
+		return
+	}
+	if ledger.OwnerID != userUUID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only the owner can delete"})
+		return
+	}
+	if ledger.Type == "family" {
+		var n int64
+		service.DB.Model(&models.LedgerFamilyLink{}).Where("family_ledger_id = ?", ledgerID).Count(&n)
+		if n > 0 {
+			c.JSON(http.StatusConflict, ErrorJSON(c, "ledger.delete_requires_unlink_family"))
+			return
+		}
+	}
+
+	err = service.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Unscoped().Where("personal_ledger_id = ?", ledgerID).Delete(&models.LedgerFamilyLink{}).Error; err != nil {
+			return err
+		}
+		var txIDs []uuid.UUID
+		if err := tx.Model(&models.Transaction{}).Unscoped().Where("ledger_id = ?", ledgerID).Pluck("id", &txIDs).Error; err != nil {
+			return err
+		}
+		if len(txIDs) > 0 {
+			if err := tx.Unscoped().Where("transaction_id IN ?", txIDs).Delete(&models.TransactionTag{}).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Unscoped().Where("ledger_id = ?", ledgerID).Delete(&models.Transaction{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("ledger_id = ?", ledgerID).Delete(&models.CategoryKeyword{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("ledger_id = ?", ledgerID).Delete(&models.Category{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("ledger_id = ?", ledgerID).Delete(&models.Tag{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("ledger_id = ?", ledgerID).Delete(&models.Budget{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("ledger_id = ?", ledgerID).Delete(&models.Project{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("ledger_id = ?", ledgerID).Delete(&models.LedgerKeyword{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("ledger_id = ?", ledgerID).Delete(&models.LedgerInvite{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("ledger_id = ?", ledgerID).Delete(&models.PushNotificationSetting{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("ledger_id = ?", ledgerID).Delete(&models.LedgerUser{}).Error; err != nil {
+			return err
+		}
+		return tx.Unscoped().Where("id = ?", ledgerID).Delete(&models.Ledger{}).Error
+	})
+	if err != nil {
+		log.Printf("DeleteLedger: %v", err)
+		c.JSON(http.StatusInternalServerError, ErrorJSON(c, "common.internal_error"))
+		return
+	}
+	WriteAuditLog(c, &userUUID, "ledger.delete", "ledger", strPtr(ledgerID.String()), map[string]interface{}{
+		"name": ledger.Name, "type": ledger.Type,
+	})
+	c.Status(http.StatusNoContent)
+}
+
 // Transaction Handlers
 func CreateTransaction(c *gin.Context) {
 	userUUID, err := currentUserID(c)

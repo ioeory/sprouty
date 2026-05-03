@@ -58,6 +58,7 @@ func main() {
 		protected.GET("/ledgers", api.GetLedgers)
 		protected.POST("/ledgers", api.CreateLedger)
 		protected.PUT("/ledgers/:id", api.UpdateLedger)
+		protected.DELETE("/ledgers/:id", api.DeleteLedger)
 		protected.POST("/budgets", api.SetBudget)
 		protected.DELETE("/budgets/month-override", api.DeleteBudgetMonthOverride)
 
