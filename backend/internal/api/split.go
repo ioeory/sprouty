@@ -462,27 +462,66 @@ func execSplit(db *gorm.DB, userID uuid.UUID, p execSplitParams) (models.SplitGr
 	}
 
 	// 6) Create one child transaction per allocation in its target ledger.
+	// Pre-load the parent (source-ledger) category so we can auto-map by
+	// NameZh/NameEn/Type to the equivalent category in each target sub-ledger
+	// when the user hasn't picked a per-allocation override. The default
+	// category seeds use identical names across ledgers, so this mapping
+	// succeeds for the common case without forcing the user to pick a
+	// category per row.
+	var parentCat models.Category
+	if err := db.Where("id = ?", p.CategoryID).First(&parentCat).Error; err != nil {
+		return models.SplitGroup{}, nil, badSplit("source category not found")
+	}
+
+	// Pre-load parent tags (if any) for name-based mapping.
+	var parentTags []models.Tag
+	if len(p.TagIDs) > 0 {
+		if err := db.Where("id IN ?", p.TagIDs).Find(&parentTags).Error; err != nil {
+			return models.SplitGroup{}, nil, err
+		}
+	}
+
 	children := make([]models.Transaction, 0, len(p.Allocations))
 	for i, a := range p.Allocations {
-		catID := p.CategoryID
+		// Resolve category for this child:
+		//   - explicit per-allocation override wins
+		//   - else try the parent category id directly (works when target == source, which we forbid, but be defensive)
+		//   - else map parent category by name+type to a category that lives in the target ledger
+		var catID uuid.UUID
 		if a.CategoryID != nil {
 			catID = *a.CategoryID
-		}
-		// Validate category belongs to the target ledger (the ledger that will own the child row).
-		var cat models.Category
-		if err := db.Where("id = ? AND ledger_id = ?", catID, a.TargetLedgerID).First(&cat).Error; err != nil {
-			return models.SplitGroup{}, nil, badSplit(fmt.Sprintf("allocation %d: category does not belong to target ledger", i+1))
+			var cat models.Category
+			if err := db.Where("id = ? AND ledger_id = ?", catID, a.TargetLedgerID).First(&cat).Error; err != nil {
+				return models.SplitGroup{}, nil, badSplit(fmt.Sprintf("allocation %d: category does not belong to target ledger", i+1))
+			}
+		} else {
+			var mapped models.Category
+			q := db.Where("ledger_id = ? AND type = ?", a.TargetLedgerID, parentCat.Type)
+			if parentCat.NameZh != "" && parentCat.NameEn != "" {
+				q = q.Where("name_zh = ? OR name_en = ?", parentCat.NameZh, parentCat.NameEn)
+			} else if parentCat.NameZh != "" {
+				q = q.Where("name_zh = ?", parentCat.NameZh)
+			} else if parentCat.NameEn != "" {
+				q = q.Where("name_en = ?", parentCat.NameEn)
+			} else {
+				return models.SplitGroup{}, nil, badSplit(fmt.Sprintf("allocation %d: cannot map source category (no name)", i+1))
+			}
+			if err := q.Order("is_system DESC, sort_order ASC").First(&mapped).Error; err != nil {
+				name := parentCat.NameZh
+				if name == "" {
+					name = parentCat.NameEn
+				}
+				return models.SplitGroup{}, nil, badSplit(fmt.Sprintf("allocation %d: target ledger has no matching category for %q", i+1, name))
+			}
+			catID = mapped.ID
 		}
 
+		// Project handling: parent project lives in the source (family) ledger
+		// so it cannot be reused on a child in a personal sub-ledger. Only
+		// honor an explicit per-allocation project_id.
 		var projID *uuid.UUID
-		if !a.ClearProject {
-			if a.ProjectID != nil {
-				projID = a.ProjectID
-			} else if p.ProjectID != nil {
-				projID = p.ProjectID
-			}
-		}
-		if projID != nil {
+		if !a.ClearProject && a.ProjectID != nil {
+			projID = a.ProjectID
 			var proj models.Project
 			if err := db.Where("id = ? AND ledger_id = ?", *projID, a.TargetLedgerID).First(&proj).Error; err != nil {
 				return models.SplitGroup{}, nil, badSplit(fmt.Sprintf("allocation %d: project does not belong to target ledger", i+1))
@@ -519,17 +558,38 @@ func execSplit(db *gorm.DB, userID uuid.UUID, p execSplitParams) (models.SplitGr
 			return models.SplitGroup{}, nil, err
 		}
 
-		// Determine which tag ids to apply: per-allocation override or parent-level fallback.
+		// Resolve tag ids to apply on the child:
+		//   - per-allocation override (must already belong to target ledger)
+		//   - else map parent tags by name into target ledger (silently skip unmatched)
 		var tagIDs []uuid.UUID
 		if a.TagIDs != nil {
 			tagIDs = *a.TagIDs
-		} else {
-			tagIDs = p.TagIDs
-		}
-		if len(tagIDs) > 0 {
-			// Tags must belong to the target ledger (they're per-ledger).
-			if err := ReplaceTransactionTags(db, child.ID, child.LedgerID, tagIDs); err != nil {
-				return models.SplitGroup{}, nil, badSplit(fmt.Sprintf("allocation %d: %s", i+1, err.Error()))
+			if len(tagIDs) > 0 {
+				if err := ReplaceTransactionTags(db, child.ID, child.LedgerID, tagIDs); err != nil {
+					return models.SplitGroup{}, nil, badSplit(fmt.Sprintf("allocation %d: %s", i+1, err.Error()))
+				}
+			}
+		} else if len(parentTags) > 0 {
+			names := make([]string, 0, len(parentTags))
+			for _, t := range parentTags {
+				if t.Name != "" {
+					names = append(names, t.Name)
+				}
+			}
+			if len(names) > 0 {
+				var matched []models.Tag
+				if err := db.Where("ledger_id = ? AND name IN ?", a.TargetLedgerID, names).Find(&matched).Error; err != nil {
+					return models.SplitGroup{}, nil, err
+				}
+				if len(matched) > 0 {
+					ids := make([]uuid.UUID, 0, len(matched))
+					for _, t := range matched {
+						ids = append(ids, t.ID)
+					}
+					if err := ReplaceTransactionTags(db, child.ID, child.LedgerID, ids); err != nil {
+						return models.SplitGroup{}, nil, badSplit(fmt.Sprintf("allocation %d: %s", i+1, err.Error()))
+					}
+				}
 			}
 		}
 		children = append(children, child)
