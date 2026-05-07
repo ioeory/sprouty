@@ -46,5 +46,14 @@
   "noNote": "No note",
   "badgeInstallment": "Installment",
   "deleteInstallmentGroupTitle": "Delete entire installment group",
-  "confirmDeleteInstallment": "This removes all linked installment entries across months. Continue?"
+  "confirmDeleteInstallment": "This removes all linked installment entries across months. Continue?",
+  "badgeSplit": "Split",
+  "badgeSplitTitle": "View split details",
+  "convertToSplitTitle": "Convert to split",
+  "splitGroupsToggle": "Split groups",
+  "splitGroupsTitle": "Split containers",
+  "splitGroupsCount": "{{count}} group(s)",
+  "splitGroupsEmpty": "No split records on this family ledger yet",
+  "splitGroupsNoNote": "(no note)",
+  "splitGroupChildCount": "{{count}} child record(s)"
 }

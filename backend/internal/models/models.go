@@ -166,16 +166,38 @@ type Project struct {
 // Transaction
 type Transaction struct {
 	Base
-	Amount               float64    `gorm:"type:decimal(12,2);not null" json:"amount"`
-	Type                 string     `json:"type"` // "expense", "income", "transfer"
-	CategoryID           uuid.UUID  `gorm:"type:uuid;index" json:"category_id"`
-	LedgerID             uuid.UUID  `gorm:"type:uuid;index" json:"ledger_id"`
-	UserID               uuid.UUID  `gorm:"type:uuid;index" json:"user_id"`
-	ProjectID            *uuid.UUID `gorm:"type:uuid;index" json:"project_id"`
-	InstallmentGroupID   *uuid.UUID `gorm:"type:uuid;index" json:"installment_group_id,omitempty"`
-	Note                 string     `json:"note"`
-	Tags                 string     `json:"tags"` // Comma separated tags
-	Date                 time.Time  `gorm:"index" json:"date"`
+	Amount             float64    `gorm:"type:decimal(12,2);not null" json:"amount"`
+	Type               string     `json:"type"` // "expense", "income", "transfer"
+	CategoryID         uuid.UUID  `gorm:"type:uuid;index" json:"category_id"`
+	LedgerID           uuid.UUID  `gorm:"type:uuid;index" json:"ledger_id"`
+	UserID             uuid.UUID  `gorm:"type:uuid;index" json:"user_id"`
+	ProjectID          *uuid.UUID `gorm:"type:uuid;index" json:"project_id"`
+	InstallmentGroupID *uuid.UUID `gorm:"type:uuid;index" json:"installment_group_id,omitempty"`
+	// SplitGroupID links this row as a child of a SplitGroup. The original
+	// transaction in the source family ledger is deleted at split time;
+	// only children (one per target personal sub-ledger) carry this id.
+	SplitGroupID *uuid.UUID `gorm:"type:uuid;index" json:"split_group_id,omitempty"`
+	Note         string     `json:"note"`
+	Tags         string     `json:"tags"` // Comma separated tags
+	Date         time.Time  `gorm:"index" json:"date"`
+}
+
+// SplitGroup is the metadata header for a split-across-sub-ledgers operation.
+// It does NOT carry an aggregated transaction row in the source family ledger;
+// the children alone live as real transactions in their target personal
+// sub-ledgers, so dashboard aggregation (which already merges family + linked
+// personal ledgers) sees the correct total without any extra exclusion.
+type SplitGroup struct {
+	Base
+	SourceLedgerID  uuid.UUID  `gorm:"type:uuid;index;not null" json:"source_ledger_id"`
+	TotalAmount     float64    `gorm:"type:decimal(12,2);not null;default:0" json:"total_amount"`
+	Type            string     `gorm:"size:16;not null;default:expense" json:"type"`
+	CategoryID      uuid.UUID  `gorm:"type:uuid" json:"category_id"`
+	ProjectID       *uuid.UUID `gorm:"type:uuid" json:"project_id"`
+	Note            string     `json:"note"`
+	Tags            string     `json:"tags"`
+	Date            time.Time  `gorm:"index" json:"date"`
+	CreatedByUserID uuid.UUID  `gorm:"type:uuid;index" json:"created_by_user_id"`
 }
 
 // Budget

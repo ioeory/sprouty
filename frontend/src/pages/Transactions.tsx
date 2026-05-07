@@ -14,10 +14,13 @@ import {
   Plus,
   X,
   Layers,
+  Split,
 } from 'lucide-react';
 import api from '../api/client';
 import { Badge, Button, Card, CategoryIcon, EmptyState, Input, Select, Modal } from '../components/ui';
 import AddRecordModal from '../components/AddRecordModal';
+import SplitGroupDrawer from '../components/SplitGroupDrawer';
+import ConvertToSplitModal from '../components/ConvertToSplitModal';
 import { LocaleDateField, LocaleMonthField } from '../components/LocalePickers';
 import { useLayout } from '../components/AppLayout';
 import { pickCategoryDisplayName } from '../lib/categoryDisplay';
@@ -43,6 +46,7 @@ interface Transaction {
   created_at?: string;
   ledger_id?: string;
   installment_group_id?: string;
+  split_group_id?: string;
 }
 
 interface Category {
@@ -53,6 +57,17 @@ interface Category {
   icon: string;
   color: string;
   type: string;
+}
+
+interface SplitGroupRow {
+  id: string;
+  source_ledger_id: string;
+  total_amount: number;
+  type: string;
+  date: string;
+  note: string;
+  child_count: number;
+  children: Array<{ id: string; ledger_id: string; amount: number }>;
 }
 
 function groupByDate(txs: Transaction[]): Array<[string, Transaction[]]> {
@@ -158,6 +173,25 @@ export default function Transactions() {
   const [txFeedback, setTxFeedback] = useState('');
   const [pageSize, setPageSize] = useState(readStoredPageSize);
 
+  const [convertSplitTx, setConvertSplitTx] = useState<Transaction | null>(null);
+  const [openSplitGroupId, setOpenSplitGroupId] = useState<string | null>(null);
+  const [showSplitGroups, setShowSplitGroups] = useState(false);
+  const [splitGroups, setSplitGroups] = useState<SplitGroupRow[]>([]);
+  const [loadingSplitGroups, setLoadingSplitGroups] = useState(false);
+
+  const ledgerNameById = useMemo(() => {
+    const map: Record<string, string> = {};
+    ledgers.forEach((l) => {
+      map[l.id] = l.name;
+    });
+    return map;
+  }, [ledgers]);
+
+  const familySplitTargets = useMemo(() => {
+    if (!currentLedger || currentLedger.type !== 'family') return [];
+    return currentLedger.linked_personal ?? [];
+  }, [currentLedger]);
+
   const categoryEntityById = useMemo(() => {
     const map: Record<string, Category> = {};
     allCategoriesFlat.forEach((c) => {
@@ -251,6 +285,25 @@ export default function Transactions() {
     currentLedger?.linked_personal?.map((p) => p.id).join(',') ?? '',
     currentLedger?.linked_personal_count ?? 0,
   ].join('|');
+
+  const loadSplitGroups = useCallback(async () => {
+    if (!currentLedger) return;
+    setLoadingSplitGroups(true);
+    try {
+      const res = await api.get(`/split-groups?ledger_id=${currentLedger.id}`);
+      setSplitGroups((res.data || []) as SplitGroupRow[]);
+    } catch (err) {
+      console.error('Failed to load split groups', err);
+    } finally {
+      setLoadingSplitGroups(false);
+    }
+  }, [currentLedger]);
+
+  useEffect(() => {
+    if (showSplitGroups) {
+      void loadSplitGroups();
+    }
+  }, [showSplitGroups, loadSplitGroups, linkedKey]);
 
   useEffect(() => {
     if (currentLedger) {
@@ -374,6 +427,16 @@ export default function Transactions() {
           )}
         </div>
         <div className="flex gap-2">
+          {currentLedger?.type === 'family' && familySplitTargets.length > 0 && (
+            <Button
+              variant={showSplitGroups ? 'primary' : 'outline'}
+              size="sm"
+              leftIcon={<Split size={14} />}
+              onClick={() => setShowSplitGroups((v) => !v)}
+            >
+              {t('transactions:splitGroupsToggle')}
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -506,6 +569,55 @@ export default function Transactions() {
         </Card>
       )}
 
+      {/* Split groups (containers) */}
+      {showSplitGroups && currentLedger?.type === 'family' && (
+        <Card padding="sm">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold text-[var(--color-text)]">
+              {t('transactions:splitGroupsTitle')}
+            </h3>
+            <span className="text-xs text-[var(--color-text-subtle)]">
+              {t('transactions:splitGroupsCount', { count: splitGroups.length })}
+            </span>
+          </div>
+          {loadingSplitGroups ? (
+            <div className="flex items-center justify-center py-6 text-[var(--color-text-subtle)]">
+              <Loader2 className="animate-spin" size={18} />
+            </div>
+          ) : splitGroups.length === 0 ? (
+            <p className="py-4 text-center text-xs text-[var(--color-text-subtle)]">
+              {t('transactions:splitGroupsEmpty')}
+            </p>
+          ) : (
+            <div className="divide-y divide-[var(--color-border)]">
+              {splitGroups.map((g) => (
+                <button
+                  key={g.id}
+                  type="button"
+                  onClick={() => setOpenSplitGroupId(g.id)}
+                  className="w-full flex items-center justify-between gap-3 py-2 text-left hover:bg-[var(--color-surface-muted)] rounded-[var(--radius-sm)] px-2 -mx-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <Split size={12} className="text-[var(--color-text-subtle)] shrink-0" />
+                      <span className="text-xs font-medium text-[var(--color-text)] truncate">
+                        {g.note || t('transactions:splitGroupsNoNote')}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-[var(--color-text-subtle)] mt-0.5">
+                      {g.date} · {t('transactions:splitGroupChildCount', { count: g.child_count })}
+                    </p>
+                  </div>
+                  <span className="font-tabular text-sm font-semibold text-[var(--color-text)] shrink-0">
+                    ¥{g.total_amount.toFixed(2)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
+
       {/* List */}
       <Card padding="none">
         {loading && txs.length === 0 ? (
@@ -582,6 +694,18 @@ export default function Transactions() {
                                   {t('transactions:badgeInstallment')}
                                 </Badge>
                               )}
+                              {tx.split_group_id && (
+                                <button
+                                  type="button"
+                                  onClick={() => setOpenSplitGroupId(tx.split_group_id!)}
+                                  title={t('transactions:badgeSplitTitle')}
+                                  className="shrink-0"
+                                >
+                                  <Badge tone="info" className="!text-[10px] !py-0 !px-1.5 font-normal cursor-pointer hover:underline">
+                                    {t('transactions:badgeSplit')}
+                                  </Badge>
+                                </button>
+                              )}
                               {tx.type === 'income' ? (
                                 <ArrowUp size={12} className="text-[var(--color-success)]" />
                               ) : (
@@ -648,6 +772,21 @@ export default function Transactions() {
                             >
                               <Pencil size={13} />
                             </button>
+                            {canMutate &&
+                              currentLedger?.type === 'family' &&
+                              tx.ledger_id === currentLedger.id &&
+                              !tx.installment_group_id &&
+                              !tx.split_group_id &&
+                              familySplitTargets.length > 0 && (
+                                <button
+                                  type="button"
+                                  title={t('transactions:convertToSplitTitle')}
+                                  onClick={() => setConvertSplitTx(tx)}
+                                  className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-subtle)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)]"
+                                >
+                                  <Split size={13} />
+                                </button>
+                              )}
                             {tx.installment_group_id && canMutate && (
                               <button
                                 type="button"
@@ -709,6 +848,7 @@ export default function Transactions() {
         <AddRecordModal
           open
           ledgerId={currentLedger.id}
+          splitTargets={currentLedger.type === 'family' ? currentLedger.linked_personal ?? [] : []}
           onClose={() => setAdding(false)}
           onSuccess={() => {
             setAdding(false);
@@ -729,6 +869,37 @@ export default function Transactions() {
           onSuccess={() => {
             setEditing(null);
             load(true);
+          }}
+        />
+      )}
+
+      {convertSplitTx && (
+        <ConvertToSplitModal
+          open
+          transaction={{
+            id: convertSplitTx.id,
+            amount: convertSplitTx.amount,
+            note: convertSplitTx.note,
+          }}
+          splitTargets={familySplitTargets}
+          onClose={() => setConvertSplitTx(null)}
+          onSuccess={() => {
+            setConvertSplitTx(null);
+            load(true);
+            if (showSplitGroups) void loadSplitGroups();
+          }}
+        />
+      )}
+
+      {openSplitGroupId && (
+        <SplitGroupDrawer
+          open
+          splitGroupId={openSplitGroupId}
+          ledgerNameById={ledgerNameById}
+          onClose={() => setOpenSplitGroupId(null)}
+          onDeleted={() => {
+            load(true);
+            if (showSplitGroups) void loadSplitGroups();
           }}
         />
       )}

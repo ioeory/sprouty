@@ -76,9 +76,16 @@ func main() {
 		protected.GET("/transactions", api.GetTransactions)
 		protected.POST("/transactions", api.CreateTransaction)
 		protected.POST("/transactions/installment", api.CreateInstallment)
+		protected.POST("/transactions/split", api.CreateSplit)
+		protected.POST("/transactions/:id/convert-to-split", api.ConvertTransactionToSplit)
 		protected.PUT("/transactions/:id", api.UpdateTransaction)
 		protected.DELETE("/transactions/:id", api.DeleteTransaction)
 		protected.DELETE("/transactions/installment-group/:groupId", api.DeleteInstallmentGroup)
+
+		// Split-group routes (split-across-sub-ledgers)
+		protected.GET("/split-groups", api.ListSplitGroups)
+		protected.GET("/split-groups/:id", api.GetSplitGroup)
+		protected.DELETE("/split-groups/:id", api.DeleteSplitGroup)
 
 		// Category routes
 		protected.GET("/categories", api.GetCategories)

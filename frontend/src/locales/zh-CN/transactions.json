@@ -46,5 +46,14 @@
   "noNote": "无备注",
   "badgeInstallment": "分期",
   "deleteInstallmentGroupTitle": "删除整组分期流水",
-  "confirmDeleteInstallment": "将删除该分期关联的全部月份记录，确定吗？"
+  "confirmDeleteInstallment": "将删除该分期关联的全部月份记录，确定吗？",
+  "badgeSplit": "分账",
+  "badgeSplitTitle": "查看分账明细",
+  "convertToSplitTitle": "拆分这笔",
+  "splitGroupsToggle": "分账组",
+  "splitGroupsTitle": "分账容器",
+  "splitGroupsCount": "共 {{count}} 组",
+  "splitGroupsEmpty": "该家庭账本还没有分账记录",
+  "splitGroupsNoNote": "（无备注）",
+  "splitGroupChildCount": "包含 {{count}} 条子分账"
 }

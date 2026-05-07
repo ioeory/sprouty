@@ -732,6 +732,11 @@ export default function AppLayout() {
             open
             ledgerId={fabAddLedgerId ?? currentLedger.id}
             defaultProjectId={fabAddProjectId ?? undefined}
+            splitTargets={(() => {
+              const targetId = fabAddLedgerId ?? currentLedger.id;
+              const led = ledgers.find((l) => l.id === targetId) ?? currentLedger;
+              return led.type === 'family' ? led.linked_personal ?? [] : [];
+            })()}
             onClose={() => {
               setShowAdd(false);
               setFabAddLedgerId(null);

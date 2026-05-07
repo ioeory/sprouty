@@ -6,6 +6,10 @@ import { dateInputValueToISO, formatLocalDateForInput } from '../lib/dateLocal';
 import { LocaleDateField } from './LocalePickers';
 import { Button, Modal, CategoryIcon, cn } from './ui';
 import { pickCategoryDisplayName } from '../lib/categoryDisplay';
+import SplitAllocationsEditor, {
+  type SplitAllocation,
+  validateAllocations,
+} from './SplitAllocationsEditor';
 
 interface Category {
   id: string;
@@ -39,6 +43,12 @@ interface Props {
   onSuccess: () => void;
   /** When creating a row, pre-select this project (e.g. project detail / FAB on project route). */
   defaultProjectId?: string;
+  /**
+   * Personal sub-ledgers linked under this family ledger. When non-empty, the
+   * "split to sub-ledgers" toggle becomes available (create-mode only). Pass
+   * `currentLedger.linked_personal` here on family ledger pages.
+   */
+  splitTargets?: { id: string; name: string }[];
   initial?: {
     id?: string;
     amount?: number;
@@ -51,7 +61,7 @@ interface Props {
   };
 }
 
-export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, initial, defaultProjectId }: Props) {
+export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, initial, defaultProjectId, splitTargets }: Props) {
   const { t, i18n } = useTranslation('modals');
   const { t: tc } = useTranslation('common');
   const isEdit = !!initial?.id;
@@ -74,6 +84,9 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
   const [installmentMonths, setInstallmentMonths] = useState('3');
   const [installmentMode, setInstallmentMode] = useState<'equal' | 'custom'>('equal');
   const [installmentCustom, setInstallmentCustom] = useState('');
+  const [splitEnabled, setSplitEnabled] = useState(false);
+  const [splitAllocations, setSplitAllocations] = useState<SplitAllocation[]>([]);
+  const splitAvailable = !isEdit && (splitTargets?.length ?? 0) > 0 && (type === 'expense' || type === 'income');
 
   useEffect(() => {
     let ignore = false;
@@ -151,6 +164,8 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
       setInstallmentMonths('3');
       setInstallmentMode('equal');
       setInstallmentCustom('');
+      setSplitEnabled(false);
+      setSplitAllocations([]);
     } else {
       setAmount('');
       setType('expense');
@@ -164,6 +179,8 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
       setInstallmentMonths('3');
       setInstallmentMode('equal');
       setInstallmentCustom('');
+      setSplitEnabled(false);
+      setSplitAllocations([]);
     }
     setError('');
   }, [
@@ -195,6 +212,31 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
       if (Number.isNaN(total) || total <= 0) {
         setError(t('saveFailed'));
         setLoading(false);
+        return;
+      }
+
+      if (!isEdit && splitAvailable && splitEnabled) {
+        const v = validateAllocations(splitAllocations, total);
+        if (!v.ok) {
+          setError(t(v.key));
+          setLoading(false);
+          return;
+        }
+        await api.post('/transactions/split', {
+          source_ledger_id: ledgerId,
+          type,
+          category_id: selectedCategory,
+          project_id: projectId || null,
+          note,
+          date: dateInputValueToISO(date),
+          tag_ids: selectedTagIds,
+          allocations: splitAllocations.map((a) => ({
+            target_ledger_id: a.target_ledger_id,
+            amount: parseFloat(a.amount),
+          })),
+        });
+        onSuccess();
+        onClose();
         return;
       }
 
@@ -327,16 +369,19 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
 
         {!isEdit && type === 'expense' && (
           <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)]/40 p-3 space-y-2">
-            <label className="flex items-center gap-2 text-xs font-medium text-[var(--color-text-muted)] cursor-pointer select-none">
+            <label className={cn(
+              'flex items-center gap-2 text-xs font-medium select-none',
+              splitEnabled ? 'text-[var(--color-text-subtle)] cursor-not-allowed' : 'text-[var(--color-text-muted)] cursor-pointer',
+            )}>
               <input
                 type="checkbox"
+                disabled={splitEnabled}
                 checked={installmentEnabled}
                 onChange={(e) => setInstallmentEnabled(e.target.checked)}
                 className="accent-[var(--color-brand)]"
               />
               {t('installmentSection')}
-            </label>
-            {installmentEnabled && (
+            </label>            {installmentEnabled && (
               <>
                 <p className="text-[11px] text-[var(--color-text-subtle)] leading-relaxed">{t('installmentHint')}</p>
                 <div className="flex flex-wrap items-end gap-2">
@@ -387,6 +432,35 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
                     className="w-full h-9 px-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-xs font-mono"
                   />
                 )}
+              </>
+            )}
+          </div>
+        )}
+
+        {splitAvailable && (
+          <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)]/40 p-3 space-y-2">
+            <label className={cn(
+              'flex items-center gap-2 text-xs font-medium select-none',
+              installmentEnabled ? 'text-[var(--color-text-subtle)] cursor-not-allowed' : 'text-[var(--color-text-muted)] cursor-pointer',
+            )}>
+              <input
+                type="checkbox"
+                disabled={installmentEnabled}
+                checked={splitEnabled}
+                onChange={(e) => setSplitEnabled(e.target.checked)}
+                className="accent-[var(--color-brand)]"
+              />
+              {t('splitSection')}
+            </label>
+            {splitEnabled && (
+              <>
+                <p className="text-[11px] text-[var(--color-text-subtle)] leading-relaxed">{t('splitHint')}</p>
+                <SplitAllocationsEditor
+                  targets={splitTargets!}
+                  totalAmount={parseFloat(amount) || 0}
+                  allocations={splitAllocations}
+                  onChange={setSplitAllocations}
+                />
               </>
             )}
           </div>
@@ -546,9 +620,11 @@ export default function AddRecordModal({ open, ledgerId, onClose, onSuccess, ini
           <Button type="submit" loading={loading} fullWidth disabled={!selectedCategory}>
             {isEdit
               ? t('saveChanges')
-              : type === 'expense' && installmentEnabled
-                ? t('installmentCreate')
-                : t('saveRecord')}
+              : splitEnabled
+                ? t('splitCreate')
+                : type === 'expense' && installmentEnabled
+                  ? t('installmentCreate')
+                  : t('saveRecord')}
           </Button>
         </div>
       </form>

@@ -588,6 +588,10 @@ export default function ProjectDetail() {
           open
           ledgerId={ledgerForTx}
           defaultProjectId={id}
+          splitTargets={(() => {
+            const led = ledgers.find((l) => l.id === ledgerForTx);
+            return led && led.type === 'family' ? led.linked_personal ?? [] : [];
+          })()}
           onClose={() => setShowAdd(false)}
           onSuccess={() => {
             setShowAdd(false);

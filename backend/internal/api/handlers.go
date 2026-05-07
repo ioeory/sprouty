@@ -619,6 +619,9 @@ func transactionJSON(t models.Transaction, tags []models.Tag) gin.H {
 	if t.InstallmentGroupID != nil {
 		h["installment_group_id"] = *t.InstallmentGroupID
 	}
+	if t.SplitGroupID != nil {
+		h["split_group_id"] = *t.SplitGroupID
+	}
 	return h
 }
 
@@ -729,6 +732,11 @@ func UpdateTransaction(c *gin.Context) {
 		}
 	}
 
+	// If this transaction is part of a split group and amount changed, refresh the group total.
+	if tx.SplitGroupID != nil {
+		recalcSplitGroupTotal(service.DB, *tx.SplitGroupID)
+	}
+
 	c.JSON(http.StatusOK, withTransactionTags(tx))
 }
 
@@ -760,6 +768,13 @@ func DeleteTransaction(c *gin.Context) {
 	if err := service.DB.Delete(&tx).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete"})
 		return
+	}
+	// If this row was a split child, refresh its group total. If the group is
+	// now empty, the user can clean it up via DELETE /split-groups/:id; we
+	// don't auto-delete here so the group's metadata (date, note, etc.) is
+	// preserved for the UI in case the user re-adds a child.
+	if tx.SplitGroupID != nil {
+		recalcSplitGroupTotal(service.DB, *tx.SplitGroupID)
 	}
 	c.Status(http.StatusNoContent)
 }

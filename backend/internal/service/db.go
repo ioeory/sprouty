@@ -232,6 +232,7 @@ func InitDB() {
 		&models.LedgerFamilyLink{},
 		&models.Tag{},
 		&models.TransactionTag{},
+		&models.SplitGroup{},
 		&models.SystemSettings{},
 		&models.AuditLog{},
 		&models.OIDCExchange{},
