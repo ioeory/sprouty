@@ -154,6 +154,9 @@ export default function Transactions() {
   const [allCategoriesFlat, setAllCategoriesFlat] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterOpen, setFilterOpen] = useState(false);
+  // ledgerFilter: subset of family-cluster ledger ids the user wants to see.
+  // Empty = no client-side restriction (show the full cluster).
+  const [ledgerFilter, setLedgerFilter] = useState<string[]>([]);
 
   const [typeFilter, setTypeFilter] = useState('');
   /** Semantic merge key from `groupCategoriesBySemanticKey`; empty = all categories */
@@ -258,6 +261,7 @@ export default function Transactions() {
       if (startDate) params.set('start_date', startDate);
       if (endDate) params.set('end_date', endDate);
       if (debouncedSearch) params.set('q', debouncedSearch);
+      if (ledgerFilter.length > 0) params.set('ledger_ids', ledgerFilter.join(','));
 
       const res = await api.get(`/transactions?${params.toString()}`);
       const items: Transaction[] = res.data?.items || [];
@@ -319,7 +323,7 @@ export default function Transactions() {
     if (currentLedger) {
       load(true);
     }
-  }, [currentLedger?.id, typeFilter, categoryMergeKey, categoryGroups, startDate, endDate, debouncedSearch]);
+  }, [currentLedger?.id, typeFilter, categoryMergeKey, categoryGroups, startDate, endDate, debouncedSearch, ledgerFilter]);
 
   useEffect(() => {
     if (!startDate || !endDate) {
@@ -343,9 +347,16 @@ export default function Transactions() {
   const displayExpense = sumExpense ?? loadedTotals.expense;
   const displayIncome = sumIncome ?? loadedTotals.income;
 
+  // Reset the per-ledger filter when switching ledgers; the chips only make
+  // sense in the context of the current family cluster.
+  useEffect(() => {
+    setLedgerFilter([]);
+  }, [currentLedger?.id]);
+
   const hasMore = txs.length < total;
   const activeFilterCount =
-    [typeFilter, categoryMergeKey, startDate, endDate, debouncedSearch].filter(Boolean).length;
+    [typeFilter, categoryMergeKey, startDate, endDate, debouncedSearch].filter(Boolean).length +
+    (ledgerFilter.length > 0 ? 1 : 0);
 
   const clearFilters = () => {
     setTypeFilter('');
@@ -354,6 +365,7 @@ export default function Transactions() {
     setEndDate('');
     setBillMonth('');
     setSearch('');
+    setLedgerFilter([]);
   };
 
   const maxBillMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
@@ -559,6 +571,36 @@ export default function Transactions() {
               <LocaleDateField value={endDate} onChange={setEndDate} min={startDate || undefined} className="text-xs" />
             </div>
           </div>
+          {currentLedger?.type === 'family' && familySplitTargets.length > 0 && (
+            <div className="mt-3">
+              <p className="text-[10px] uppercase tracking-wider text-[var(--color-text-subtle)] mb-1.5">
+                {t('transactions:filterLedgerLabel')}
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {[{ id: currentLedger.id, name: t('transactions:filterLedgerSelfMain') }, ...familySplitTargets].map((l) => {
+                  const active = ledgerFilter.includes(l.id);
+                  return (
+                    <button
+                      key={l.id}
+                      type="button"
+                      onClick={() =>
+                        setLedgerFilter((prev) =>
+                          prev.includes(l.id) ? prev.filter((x) => x !== l.id) : [...prev, l.id],
+                        )
+                      }
+                      className={`px-2.5 h-7 rounded-full border text-xs transition-colors ${
+                        active
+                          ? 'bg-[var(--color-brand-soft)] border-[var(--color-brand)] text-[var(--color-brand)]'
+                          : 'bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]'
+                      }`}
+                    >
+                      {l.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {activeFilterCount > 0 && (
             <div className="mt-3 flex justify-end">
               <Button variant="ghost" size="sm" leftIcon={<X size={12} />} onClick={clearFilters}>

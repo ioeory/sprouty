@@ -8,11 +8,15 @@ import (
 // UserConnection stores associations between Sprouts users and external apps like TG/Slack
 type UserConnection struct {
 	gorm.Model
-	UserID     uuid.UUID `gorm:"type:uuid;not null;index"`
-	Platform   string    `gorm:"size:50;not null;index"` // e.g., "telegram", "feishu"
-	ExternalID string    `gorm:"size:100;not null;index"` // The Chat ID or User ID from the platform
-	Username   string    `gorm:"size:100"`               // External username for display
-	Settings   string    `gorm:"type:text"`              // JSON string for platform-specific settings
+	UserID     uuid.UUID  `gorm:"type:uuid;not null;index"`
+	Platform   string     `gorm:"size:50;not null;index"` // e.g., "telegram", "feishu"
+	ExternalID string     `gorm:"size:100;not null;index"` // The Chat ID or User ID from the platform
+	Username   string     `gorm:"size:100"`               // External username for display
+	Settings   string     `gorm:"type:text"`              // JSON string for platform-specific settings
+	// DefaultLedgerID is the per-binding fallback ledger used when a message
+	// doesn't carry an explicit `@account` prefix or matching ledger keyword.
+	// Nil ⇒ the legacy "first owned ledger" rule applies.
+	DefaultLedgerID *uuid.UUID `gorm:"type:uuid;index"`
 }
 
 // BindingSession stores temporary PIN codes for linking accounts

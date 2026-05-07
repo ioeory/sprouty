@@ -119,6 +119,10 @@ func (t *TelegramAdapter) handleUpdate(update tgbotapi.Update) {
 			t.handleSpentNDays(msg, 0)
 		case "detail", "recent":
 			t.handleExpenseDetail(msg)
+		case "ledger":
+			t.handleLedger(msg)
+		case "split":
+			t.handleSplit(msg)
 		default:
 			t.sendReply(msg.Chat.ID, "未知指令。发送 /start 查看帮助。\nUnknown command. Use /start for help.")
 		}
@@ -144,6 +148,16 @@ func (t *TelegramAdapter) handleStart(msg *tgbotapi.Message) {
 		"绑定后直接发送消息即可记账，例如：\n" +
 		"  午餐 50\n" +
 		"  50 购物 新鞋\n\n" +
+		"记一笔可加 `@账本名` 前缀记到指定账本。\n" +
+		"  示例：@生活 午餐 50  → 记入 “生活” 账本\n\n" +
+		"默认账本：\n" +
+		"  /ledger <名称> —— 设为默认账本（不带参数查看当前）\n" +
+		"  /ledger 清除 或 /ledger clear —— 恢复为「第一个账本」\n\n" +
+		"分账（仅限家庭账本下拆到子账本）：\n" +
+		"  /split <总金额> <分类关键字> [备注] @<子账本>[=金额] …\n" +
+		"  未指定金额时平均分配。示例：\n" +
+		"    /split 100 餐饮 @小A @小B           → 各 50\n" +
+		"    /split 100 餐饮 (外卖) @小A=70 @小B=30\n\n" +
 		"等额分期（多笔支出、同一分期组）：\n" +
 		"  /install <期数> <总金额> <分类或关键字…>\n" +
 		"  与发消息记账相同，可写账本关键字、`昨天`/`今天`、括号备注、`l:标签名`。\n" +
@@ -570,7 +584,11 @@ func (t *TelegramAdapter) handlePlainMessage(msg *tgbotapi.Message) {
 		return
 	}
 
-	// 2) Load this user's ledger-keyword map for the parser
+	// 2a) Optional `@账本名` prefix override (highest precedence). Strip it
+	// before running the keyword parser so it doesn't end up in the note.
+	prefixLedgerName, text := stripLedgerPrefix(text)
+
+	// 2b) Load this user's ledger-keyword map for the parser
 	ledgerKWMap := t.loadLedgerKeywordMap(conn.UserID)
 
 	// 3) Run the deterministic parsing pipeline (pure function)
@@ -580,14 +598,26 @@ func (t *TelegramAdapter) handlePlainMessage(msg *tgbotapi.Message) {
 		return
 	}
 
-	// 4) Resolve target ledger:
-	//    a) parser produced a LedgerHint -> use it (already validated membership when we loaded the map)
-	//    b) default to the first ledger the user belongs to
+	// 4) Resolve target ledger by precedence:
+	//    a) leading `@account` prefix on the message
+	//    b) parser produced a LedgerHint via per-ledger keyword
+	//    c) binding's saved default (set via /ledger)
+	//    d) fallback: first ledger the user belongs to
 	var ledgerID uuid.UUID
-	if result.LedgerHint != "" {
+	if prefixLedgerName != "" {
+		if l, ok := t.resolveLedgerByName(conn.UserID, prefixLedgerName); ok {
+			ledgerID = l.ID
+		} else {
+			t.sendReply(msg.Chat.ID, fmt.Sprintf("找不到名为 %q 的账本，已忽略 @ 前缀。", prefixLedgerName))
+		}
+	}
+	if ledgerID == uuid.Nil && result.LedgerHint != "" {
 		if lid, err := uuid.Parse(result.LedgerHint); err == nil {
 			ledgerID = lid
 		}
+	}
+	if ledgerID == uuid.Nil && conn.DefaultLedgerID != nil {
+		ledgerID = *conn.DefaultLedgerID
 	}
 	if ledgerID == uuid.Nil {
 		var lu models.LedgerUser

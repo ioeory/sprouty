@@ -55,5 +55,7 @@
   "splitGroupsCount": "{{count}} group(s)",
   "splitGroupsEmpty": "No split records on this family ledger yet",
   "splitGroupsNoNote": "(no note)",
-  "splitGroupChildCount": "{{count}} child record(s)"
+  "splitGroupChildCount": "{{count}} child record(s)",
+  "filterLedgerLabel": "Ledger scope",
+  "filterLedgerSelfMain": "Family main"
 }

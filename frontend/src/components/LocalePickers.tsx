@@ -261,16 +261,11 @@ function LocaleDateFieldZh({ value, onChange, max, min, className }: DateFieldBa
 
   const label = useMemo(() => {
     if (!value || !p) return t('calendarPickDate');
-    try {
-      return new Intl.DateTimeFormat('zh-CN', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        weekday: 'short',
-      }).format(new Date(p.y, p.m - 1, p.d));
-    } catch {
-      return value;
-    }
+    // Compact ASCII format keeps the trigger button narrow even when used
+    // inside dense grids; the popup calendar itself is fully localized.
+    const mm = String(p.m).padStart(2, '0');
+    const dd = String(p.d).padStart(2, '0');
+    return `${p.y}-${mm}-${dd}`;
   }, [value, p, t]);
 
   const weekdays = t('calendarWeekdays', { returnObjects: true }) as string[];

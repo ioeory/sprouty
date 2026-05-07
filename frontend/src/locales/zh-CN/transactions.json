@@ -55,5 +55,7 @@
   "splitGroupsCount": "共 {{count}} 组",
   "splitGroupsEmpty": "该家庭账本还没有分账记录",
   "splitGroupsNoNote": "（无备注）",
-  "splitGroupChildCount": "包含 {{count}} 条子分账"
+  "splitGroupChildCount": "包含 {{count}} 条子分账",
+  "filterLedgerLabel": "账本范围",
+  "filterLedgerSelfMain": "家庭主账本"
 }

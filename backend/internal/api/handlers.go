@@ -474,6 +474,29 @@ func GetTransactions(c *gin.Context) {
 		}
 	}
 
+	// Optional client-side narrowing of the family cluster to a subset of its
+	// ledgers (used by the Transactions filter panel chips). We intersect with
+	// the already-resolved cluster so callers can't probe ledgers they have no
+	// access to.
+	if rawLedgers := strings.TrimSpace(c.Query("ledger_ids")); rawLedgers != "" {
+		requested := parseUUIDList(rawLedgers)
+		if len(requested) > 0 {
+			allowed := map[uuid.UUID]struct{}{}
+			for _, id := range ledgerIDs {
+				allowed[id] = struct{}{}
+			}
+			filtered := make([]uuid.UUID, 0, len(requested))
+			for _, id := range requested {
+				if _, ok := allowed[id]; ok {
+					filtered = append(filtered, id)
+				}
+			}
+			if len(filtered) > 0 {
+				ledgerIDs = filtered
+			}
+		}
+	}
+
 	query := service.DB.Model(&models.Transaction{}).Where("ledger_id IN ?", ledgerIDs)
 
 	if pidStr := strings.TrimSpace(c.Query("project_id")); pidStr != "" {

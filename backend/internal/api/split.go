@@ -626,3 +626,63 @@ func splitGroupJSON(g models.SplitGroup, children []models.Transaction) gin.H {
 		"child_count":        len(items),
 	}
 }
+
+// SplitAllocationInput is the public shape used by callers outside this
+// package (e.g. the Telegram bot) to invoke RunSplit without depending on
+// gin / HTTP request binding.
+type SplitAllocationInput struct {
+	TargetLedgerID uuid.UUID
+	Amount         float64
+}
+
+// SplitInput is the public input to RunSplit.
+type SplitInput struct {
+	SourceLedgerID uuid.UUID
+	UserID         uuid.UUID
+	Type           string // "expense" (default) or "income"
+	CategoryID     uuid.UUID
+	Note           string
+	Date           time.Time
+	Allocations    []SplitAllocationInput
+}
+
+// RunSplit is a thin wrapper around the package-internal execSplit so that
+// other packages (currently the bot) can create split groups using the same
+// validation rules as the HTTP endpoint. The error returned may be a
+// *splitErr internally; callers can use IsSplitBadRequest to map it.
+func RunSplit(db *gorm.DB, in SplitInput) (models.SplitGroup, []models.Transaction, error) {
+	t := in.Type
+	if t == "" {
+		t = "expense"
+	}
+	date := in.Date
+	if date.IsZero() {
+		date = time.Now()
+	}
+	allocs := make([]splitAllocationReq, 0, len(in.Allocations))
+	for _, a := range in.Allocations {
+		allocs = append(allocs, splitAllocationReq{
+			TargetLedgerID: a.TargetLedgerID,
+			Amount:         a.Amount,
+		})
+	}
+	return execSplit(db, in.UserID, execSplitParams{
+		SourceLedgerID: in.SourceLedgerID,
+		Type:           t,
+		CategoryID:     in.CategoryID,
+		Note:           in.Note,
+		Date:           date,
+		Allocations:    allocs,
+	})
+}
+
+// IsSplitBadRequest reports whether err originated as a user-facing
+// validation error (so the caller can return the message verbatim instead of
+// "internal error").
+func IsSplitBadRequest(err error) bool {
+	var se *splitErr
+	if errors.As(err, &se) {
+		return se.status == http.StatusBadRequest || se.status == http.StatusForbidden
+	}
+	return false
+}
