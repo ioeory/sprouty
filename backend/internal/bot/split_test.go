@@ -2,6 +2,7 @@ package bot
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -67,4 +68,21 @@ func TestParseSplitArgsLegacyAllocation(t *testing.T) {
 	if len(got.allocs) != 1 || got.allocs[0].amount != 40 || !got.allocs[0].hasAmt {
 		t.Fatalf("legacy alloc = %+v", got.allocs)
 	}
+}
+
+func TestSplitFreeTextParseKeepsCategoryKeywordInNote(t *testing.T) {
+	pr := ParseMessage("水果 TEST l:报销 100", timeNowForSplitTest(), nil)
+	if pr.CategoryHint != "水果 TEST" {
+		t.Fatalf("CategoryHint = %q", pr.CategoryHint)
+	}
+	if pr.Note != "水果 TEST" {
+		t.Fatalf("Note = %q, want category keyword preserved in note", pr.Note)
+	}
+	if len(pr.TagHints) != 1 || pr.TagHints[0] != "报销" {
+		t.Fatalf("TagHints = %+v", pr.TagHints)
+	}
+}
+
+func timeNowForSplitTest() time.Time {
+	return time.Date(2026, 5, 8, 12, 0, 0, 0, time.Local)
 }

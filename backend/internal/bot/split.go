@@ -218,7 +218,7 @@ func (t *TelegramAdapter) runSplit(conn models.UserConnection, args string, pref
 		cat = fallback
 		groupNote = strings.TrimSpace(freeText)
 	} else {
-		groupNote = t.noteWithoutMatchedCategory(src.ID, cat, pr.Note, categoryHint)
+		groupNote = strings.TrimSpace(pr.Note)
 	}
 
 	// --- Build allocations for api.RunSplit (Phase 4: per-child note) ---
@@ -303,45 +303,6 @@ func (t *TelegramAdapter) fallbackCategory(ledgerID uuid.UUID, txType string) (m
 		return models.Category{}, false
 	}
 	return cat, true
-}
-
-func (t *TelegramAdapter) noteWithoutMatchedCategory(ledgerID uuid.UUID, cat models.Category, note string, hint string) string {
-	note = strings.TrimSpace(note)
-	hint = strings.TrimSpace(hint)
-	if note == "" || note != hint {
-		return note
-	}
-	candidates := []string{cat.NameZh, cat.NameEn}
-	var kws []models.CategoryKeyword
-	t.db.Where("ledger_id = ? AND category_id = ?", ledgerID, cat.ID).Find(&kws)
-	for _, kw := range kws {
-		candidates = append(candidates, kw.KeywordZh, kw.KeywordEn)
-	}
-	best := ""
-	lowerHint := strings.ToLower(hint)
-	for _, c := range candidates {
-		c = strings.TrimSpace(c)
-		if c == "" {
-			continue
-		}
-		if strings.Contains(lowerHint, strings.ToLower(c)) && len([]rune(c)) > len([]rune(best)) {
-			best = c
-		}
-	}
-	if best == "" {
-		return note
-	}
-	return strings.TrimSpace(strings.Join(strings.Fields(removeFirstInsensitive(hint, best)), " "))
-}
-
-func removeFirstInsensitive(s string, needle string) string {
-	lower := strings.ToLower(s)
-	n := strings.ToLower(needle)
-	idx := strings.Index(lower, n)
-	if idx < 0 {
-		return s
-	}
-	return s[:idx] + " " + s[idx+len(needle):]
 }
 
 func (t *TelegramAdapter) attachSplitTags(children []models.Transaction, tagHints []string) []string {
