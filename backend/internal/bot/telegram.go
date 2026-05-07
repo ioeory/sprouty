@@ -154,10 +154,13 @@ func (t *TelegramAdapter) handleStart(msg *tgbotapi.Message) {
 		"  /ledger <名称> —— 设为默认账本（不带参数查看当前）\n" +
 		"  /ledger 清除 或 /ledger clear —— 恢复为「第一个账本」\n\n" +
 		"分账（仅限家庭账本下拆到子账本）：\n" +
-		"  /split <总金额> <分类关键字> [备注] @<子账本>[=金额] …\n" +
-		"  未指定金额时平均分配。示例：\n" +
-		"    /split 100 餐饮 @小A @小B           → 各 50\n" +
-		"    /split 100 餐饮 (外卖) @小A=70 @小B=30\n\n" +
+		"  /split <总金额> <分类关键字> [备注] [<金额>@<子账本>(备注)] …\n" +
+		"  也可用 “分账 …” 直接触发（无需斜杠）。\n" +
+		"  未指定分账时自动平均分到所有子账本。示例：\n" +
+		"    /split 100 水果 TEST                       → 各子账本平均分摊\n" +
+		"    分账 100 水果 TEST                          → 同上\n" +
+		"    /split 100 水果 TEST 40@A1(给A1) 60@A2(给A2)\n" +
+		"    分账 100 水果 TEST 40A1(给A1) 60@A2(给A2)\n\n" +
 		"等额分期（多笔支出、同一分期组）：\n" +
 		"  /install <期数> <总金额> <分类或关键字…>\n" +
 		"  与发消息记账相同，可写账本关键字、`昨天`/`今天`、括号备注、`l:标签名`。\n" +
@@ -587,6 +590,15 @@ func (t *TelegramAdapter) handlePlainMessage(msg *tgbotapi.Message) {
 	// 2a) Optional `@账本名` prefix override (highest precedence). Strip it
 	// before running the keyword parser so it doesn't end up in the note.
 	prefixLedgerName, text := stripLedgerPrefix(text)
+
+	// 2a') Plain-text /split trigger: `分账 …` or `split …` (case-insensitive,
+	// no/full-width space allowed). Routes to the same engine as /split, with
+	// any `@账本名` prefix becoming the (family) override.
+	if args, ok := matchSplitTrigger(text); ok {
+		preferEn := t.userPreferEn(conn.UserID)
+		t.sendReply(msg.Chat.ID, t.runSplit(conn, args, preferEn, prefixLedgerName))
+		return
+	}
 
 	// 2b) Load this user's ledger-keyword map for the parser
 	ledgerKWMap := t.loadLedgerKeywordMap(conn.UserID)

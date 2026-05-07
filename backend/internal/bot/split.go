@@ -3,6 +3,8 @@ package bot
 import (
 	"fmt"
 	"math"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -15,288 +17,228 @@ import (
 	"sprouts-self/backend/internal/service"
 )
 
-const splitUsageZh = "用法：/split <总金额> <分类> [备注] @<子账本>[=金额] @<子账本>[=金额] …\n" +
-	"未指定金额时自动均分，例：/split 100 餐饮 @小A @小B"
-const splitUsageEn = "Usage: /split <total> <category> [note] @<sub>[=amt] @<sub>[=amt] …\n" +
-	"Missing amounts split equally, e.g. /split 100 lunch @AlA @Bob"
+const (
+	splitUsageZh = "用法：/split <总金额> <分类关键字> [备注] [<金额>@<子账本>(备注)] …\n" +
+		"未指定分账时自动平均分到所有子账本，例：\n" +
+		"  /split 100 水果 TEST                       → 各子账本平均分摊\n" +
+		"  /split 100 水果 TEST 40@A1(给A1) 60@A2(给A2)\n" +
+		"也可写成 “分账 100 …”（无需斜杠）。"
+	splitUsageEn = "Usage: /split <total> <category> [note] [<amount>@<sub>(note)] …\n" +
+		"Without allocations, splits equally across every linked sub-ledger.\n" +
+		"You can also type: split 100 fruit TEST"
+)
 
-// handleSplit implements /split — convert a single command into a SplitGroup
-// across the linked personal sub-ledgers of a family ledger.
+// allocToken matches the new allocation grammar:
 //
-// Grammar (whitespace-tokenized, leading `/split` already stripped):
+//	[amount]?@?<name>[=amount]?[(note)]?
 //
-//	<amount>                  required, first numeric token
-//	[free-text words]         category hint + optional note (parenthetical
-//	                          chunks are treated as note, just like the plain
-//	                          message parser)
-//	@<name>[=<amount>] …      one or more allocation tokens; missing amount
-//	                          ⇒ equal split of the unallocated remainder
+// Group 1: leading amount (optional)
+// Group 2: name
+// Group 3: trailing =amount (optional, legacy)
+// Group 4: per-allocation note (optional, ASCII or full-width parens)
+var allocTokenRe = regexp.MustCompile(`^(\d+(?:\.\d+)?)?@?([^\s()（）=＝]+?)(?:[=＝](\d+(?:\.\d+)?))?(?:[（(]([^)）]*)[)）])?$`)
+
+// splitTriggerRe matches a leading `分账` or `split` keyword on a plain
+// message, optionally followed by ASCII / full-width whitespace (or no
+// space at all). The remainder of the text becomes the /split argument
+// payload.
+var splitTriggerRe = regexp.MustCompile(`^(?i:split|分账)[\s　]*`)
+
+// matchSplitTrigger returns the args portion if `text` is a plain-message
+// /split invocation, plus a flag indicating a match.
+func matchSplitTrigger(text string) (args string, ok bool) {
+	loc := splitTriggerRe.FindStringIndex(text)
+	if loc == nil {
+		return "", false
+	}
+	return strings.TrimSpace(text[loc[1]:]), true
+}
+
+// handleSplit implements the /split command. It is a thin shell around
+// runSplit so the same logic can be reused by the plain-message trigger.
 func (t *TelegramAdapter) handleSplit(msg *tgbotapi.Message) {
-	var conn models.UserConnection
-	if err := t.db.Where("platform = ? AND external_id = ?", "telegram", strconv.FormatInt(msg.Chat.ID, 10)).First(&conn).Error; err != nil {
-		t.sendReply(msg.Chat.ID, "账号未绑定，请先 /bind [PIN]。")
+	conn, ok := t.requireBinding(msg)
+	if !ok {
 		return
 	}
 	preferEn := t.userPreferEn(conn.UserID)
-
 	args := strings.TrimSpace(msg.CommandArguments())
+	t.sendReply(msg.Chat.ID, t.runSplit(conn, args, preferEn, ""))
+}
+
+// requireBinding returns the chat's binding row, replying with the standard
+// "not bound" message and false when missing. Centralised so the split path
+// and any future commands can reuse it.
+func (t *TelegramAdapter) requireBinding(msg *tgbotapi.Message) (models.UserConnection, bool) {
+	var conn models.UserConnection
+	if err := t.db.Where("platform = ? AND external_id = ?", "telegram", strconv.FormatInt(msg.Chat.ID, 10)).First(&conn).Error; err != nil {
+		t.sendReply(msg.Chat.ID, "账号未绑定，请先 /bind [PIN]。")
+		return conn, false
+	}
+	return conn, true
+}
+
+// runSplit performs validation, parsing, allocation, and DB writes for a
+// single /split invocation. It returns the user-facing reply text.
+//
+// ledgerOverrideName, when non-empty, comes from a leading `@账本名` prefix
+// stripped earlier in the plain-message pipeline. In that case it MUST
+// resolve to a writable family ledger; otherwise we surface an error.
+func (t *TelegramAdapter) runSplit(conn models.UserConnection, args string, preferEn bool, ledgerOverrideName string) string {
 	if args == "" {
 		if preferEn {
-			t.sendReply(msg.Chat.ID, splitUsageEn)
-		} else {
-			t.sendReply(msg.Chat.ID, splitUsageZh)
+			return splitUsageEn
 		}
-		return
+		return splitUsageZh
 	}
 
-	// Resolve source ledger first (binding default → first owned). Source
-	// ledger must be a family ledger with at least 2 linked personal sub-
-	// ledgers; otherwise /split makes no sense.
-	var sourceID uuid.UUID
-	if conn.DefaultLedgerID != nil {
-		sourceID = *conn.DefaultLedgerID
-	} else {
-		var lu models.LedgerUser
-		if err := t.db.Where("user_id = ?", conn.UserID).First(&lu).Error; err != nil {
-			t.sendReply(msg.Chat.ID, "未找到账本，请先在 Web 端创建一个账本。")
-			return
-		}
-		sourceID = lu.LedgerID
-	}
-	var src models.Ledger
-	if err := t.db.First(&src, "id = ?", sourceID).Error; err != nil {
-		t.sendReply(msg.Chat.ID, "源账本不存在。")
-		return
-	}
-	if src.Type != "family" {
-		if preferEn {
-			t.sendReply(msg.Chat.ID, "/split requires a family ledger as source. Use /ledger <name> to switch.")
-		} else {
-			t.sendReply(msg.Chat.ID, "/split 仅支持家庭账本作为源账本。请先用 /ledger <账本名> 切换。")
-		}
-		return
-	}
-	if !service.UserCanWriteLedger(t.db, conn.UserID, sourceID) {
-		t.sendReply(msg.Chat.ID, "只读成员：无法在此账本记账。")
-		return
+	// --- Resolve source family ledger (Phase 1) ---
+	src, autoFromPersonal, err := t.resolveSplitSource(conn, ledgerOverrideName, preferEn)
+	if err != nil {
+		return err.Error()
 	}
 
-	// Load linked personal sub-ledgers for the source family.
+	// --- Load the family's linked sub-ledgers ---
 	var links []models.LedgerFamilyLink
-	if err := t.db.Where("family_ledger_id = ?", sourceID).Find(&links).Error; err != nil || len(links) == 0 {
+	if err := t.db.Where("family_ledger_id = ?", src.ID).Find(&links).Error; err != nil || len(links) == 0 {
 		if preferEn {
-			t.sendReply(msg.Chat.ID, "Family ledger has no linked personal sub-ledgers; nothing to split into.")
-		} else {
-			t.sendReply(msg.Chat.ID, "该家庭账本没有关联的子账本，无法分账。")
+			return "Family ledger has no linked personal sub-ledgers; nothing to split into."
 		}
-		return
+		return "该家庭账本没有关联的子账本，无法分账。"
 	}
 	subIDs := make([]uuid.UUID, 0, len(links))
 	for _, ln := range links {
 		subIDs = append(subIDs, ln.PersonalLedgerID)
 	}
 	var subs []models.Ledger
-	if err := t.db.Where("id IN ?", subIDs).Find(&subs).Error; err != nil {
-		t.sendReply(msg.Chat.ID, "读取子账本失败。")
-		return
+	if err := t.db.Where("id IN ?", subIDs).Find(&subs).Error; err != nil || len(subs) == 0 {
+		return "读取子账本失败。"
 	}
 	subByName := make(map[string]models.Ledger, len(subs))
 	for _, s := range subs {
 		subByName[strings.ToLower(s.Name)] = s
 	}
 
-	// --- Tokenize args ---
-	// Pull out parenthetical notes first so the @-token scanner doesn't trip
-	// over spaces inside (...) groups.
-	noteParts, stripped := extractParenNotes(args)
-	tokens := strings.Fields(stripped)
-
-	type allocSpec struct {
-		name   string
-		amount float64
-		hasAmt bool
+	// --- Parse tokens (Phase 2) ---
+	parsed, perr := parseSplitArgs(args, subByName)
+	if perr != "" {
+		return perr
 	}
-	var (
-		total     float64
-		haveTotal bool
-		hintWords []string
-		allocs    []allocSpec
-	)
-	for _, tok := range tokens {
-		if strings.HasPrefix(tok, "@") {
-			rest := strings.TrimSpace(tok[1:])
-			if rest == "" {
-				continue
-			}
-			name := rest
-			var amt float64
-			has := false
-			if eq := strings.IndexAny(rest, "=＝"); eq >= 0 {
-				name = strings.TrimSpace(rest[:eq])
-				amtStr := strings.TrimSpace(rest[eq+1:])
-				if v, err := strconv.ParseFloat(amtStr, 64); err == nil && v > 0 {
-					amt = v
-					has = true
-				} else {
-					t.sendReply(msg.Chat.ID, fmt.Sprintf("金额格式无效：%s", tok))
-					return
-				}
-			}
-			if name == "" {
-				continue
-			}
-			allocs = append(allocs, allocSpec{name: name, amount: amt, hasAmt: has})
-			continue
-		}
-		if !haveTotal {
-			if v, err := strconv.ParseFloat(strings.TrimRight(tok, "元¥￥"), 64); err == nil && v > 0 {
-				total = v
-				haveTotal = true
-				continue
-			}
-		}
-		hintWords = append(hintWords, tok)
-	}
-
-	if !haveTotal {
+	if !parsed.haveTotal {
 		if preferEn {
-			t.sendReply(msg.Chat.ID, "Missing total amount. "+splitUsageEn)
-		} else {
-			t.sendReply(msg.Chat.ID, "缺少总金额。"+splitUsageZh)
+			return "Missing total amount.\n" + splitUsageEn
 		}
-		return
-	}
-	if len(allocs) < 1 {
-		if preferEn {
-			t.sendReply(msg.Chat.ID, "Need at least one @sub-ledger. "+splitUsageEn)
-		} else {
-			t.sendReply(msg.Chat.ID, "至少需要 1 个 @子账本。"+splitUsageZh)
-		}
-		return
+		return "缺少总金额。\n" + splitUsageZh
 	}
 
-	// --- Resolve allocation names against sub-ledgers (case-insensitive,
-	// then prefix). Reject duplicates and unknown names.
-	seen := make(map[uuid.UUID]struct{}, len(allocs))
-	resolved := make([]struct {
-		ledger models.Ledger
-		amount float64
-		hasAmt bool
-	}, 0, len(allocs))
-	for _, a := range allocs {
-		key := strings.ToLower(a.name)
-		l, ok := subByName[key]
-		if !ok {
-			// fallback: prefix match
-			matches := []models.Ledger{}
-			for k, v := range subByName {
-				if strings.HasPrefix(k, key) {
-					matches = append(matches, v)
-				}
-			}
-			if len(matches) == 1 {
-				l = matches[0]
-				ok = true
-			}
+	// --- Phase 3: equal-across-all-subs default ---
+	if len(parsed.allocs) == 0 {
+		for _, s := range subs {
+			parsed.allocs = append(parsed.allocs, splitAllocSpec{ledger: s})
 		}
-		if !ok {
-			t.sendReply(msg.Chat.ID, fmt.Sprintf("子账本 %q 找不到或不唯一，可用：%s", a.name, joinLedgerNames(subs)))
-			return
-		}
-		if _, dup := seen[l.ID]; dup {
-			t.sendReply(msg.Chat.ID, fmt.Sprintf("重复的子账本：%s", l.Name))
-			return
-		}
-		seen[l.ID] = struct{}{}
-		resolved = append(resolved, struct {
-			ledger models.Ledger
-			amount float64
-			hasAmt bool
-		}{l, a.amount, a.hasAmt})
 	}
 
-	// --- Compute amounts: explicit values stay; remaining cents distributed
-	// equally across the un-amount'd allocations (remainder to first).
-	totalCents := int64(math.Round(total * 100))
+	// --- Cents-precise distribution ---
+	totalCents := int64(math.Round(parsed.total * 100))
 	usedCents := int64(0)
 	missing := 0
-	for _, r := range resolved {
-		if r.hasAmt {
-			usedCents += int64(math.Round(r.amount * 100))
+	for _, a := range parsed.allocs {
+		if a.hasAmt {
+			usedCents += int64(math.Round(a.amount * 100))
 		} else {
 			missing++
 		}
 	}
 	if usedCents > totalCents {
-		t.sendReply(msg.Chat.ID, fmt.Sprintf("已分配 ¥%.2f 超过总金额 ¥%.2f", float64(usedCents)/100, total))
-		return
+		return fmt.Sprintf("已分配 ¥%.2f 超过总金额 ¥%.2f", float64(usedCents)/100, parsed.total)
 	}
 	if missing == 0 && usedCents != totalCents {
-		t.sendReply(msg.Chat.ID, fmt.Sprintf("总金额不一致：¥%.2f vs 各项之和 ¥%.2f", total, float64(usedCents)/100))
-		return
+		return fmt.Sprintf("总金额不一致：¥%.2f vs 各项之和 ¥%.2f", parsed.total, float64(usedCents)/100)
 	}
 	if missing > 0 {
 		remCents := totalCents - usedCents
 		if remCents <= 0 {
-			t.sendReply(msg.Chat.ID, "无剩余金额可分配给未指定金额的子账本。")
-			return
+			return "无剩余金额可分配给未指定金额的子账本。"
 		}
 		base := remCents / int64(missing)
 		extra := remCents - base*int64(missing) // first `extra` allocations get +1 cent
-		for i := range resolved {
-			if !resolved[i].hasAmt {
+		for i := range parsed.allocs {
+			if !parsed.allocs[i].hasAmt {
 				cents := base
 				if extra > 0 {
 					cents++
 					extra--
 				}
-				resolved[i].amount = float64(cents) / 100
-				resolved[i].hasAmt = true
+				parsed.allocs[i].amount = float64(cents) / 100
+				parsed.allocs[i].hasAmt = true
 			}
 		}
 	}
 
-	// --- Resolve category against the SOURCE family ledger (RunSplit will
-	// auto-map it to each target sub-ledger by name).
-	hint := strings.TrimSpace(strings.Join(hintWords, " "))
-	if hint == "" {
-		t.sendReply(msg.Chat.ID, "需要分类关键字（紧跟在金额后面）。")
-		return
+	// --- Resolve category via the regular keyword pipeline (Phase 2 step 3) ---
+	// Build a synthetic plain-message string so ParseMessage handles
+	// multi-word keywords / parens / l:tags exactly like a normal record.
+	// We append the total at the end so ParseMessage finds an amount.
+	freeText := strings.TrimSpace(parsed.freeText)
+	if freeText == "" {
+		if preferEn {
+			return "Need a category keyword (after the total)."
+		}
+		return "需要分类关键字（紧跟在金额后面）。"
 	}
-	cat, matched := t.resolveCategory(sourceID, hint, "expense", preferEn)
+	synthetic := freeText + " " + strconv.FormatFloat(parsed.total, 'f', -1, 64)
+	// Filter the keyword map to only keywords belonging to the family or
+	// its linked subs, so a user's other ledgers can't accidentally route
+	// the category lookup. It's a soft hint anyway — resolveCategory still
+	// uses sourceID below — but this keeps the parser's own LedgerHint sane.
+	allowedLedgers := map[string]struct{}{src.ID.String(): {}}
+	for _, s := range subs {
+		allowedLedgers[s.ID.String()] = struct{}{}
+	}
+	rawKW := t.loadLedgerKeywordMap(conn.UserID)
+	scopedKW := make(map[string]string, len(rawKW))
+	for k, v := range rawKW {
+		if _, ok := allowedLedgers[v]; ok {
+			scopedKW[k] = v
+		}
+	}
+	pr := ParseMessage(synthetic, time.Now(), scopedKW)
+	categoryHint := strings.TrimSpace(pr.CategoryHint)
+	if categoryHint == "" {
+		categoryHint = freeText
+	}
+	cat, matched := t.resolveCategory(src.ID, categoryHint, "expense", preferEn)
 	if !matched {
-		t.sendReply(msg.Chat.ID, t.noCategoryReply(sourceID, hint, preferEn))
-		return
+		return t.noCategoryReply(src.ID, categoryHint, preferEn)
 	}
+	groupNote := strings.TrimSpace(pr.Note)
 
-	note := strings.TrimSpace(strings.Join(noteParts, " "))
-
-	allocations := make([]api.SplitAllocationInput, 0, len(resolved))
-	for _, r := range resolved {
+	// --- Build allocations for api.RunSplit (Phase 4: per-child note) ---
+	allocations := make([]api.SplitAllocationInput, 0, len(parsed.allocs))
+	for _, a := range parsed.allocs {
 		allocations = append(allocations, api.SplitAllocationInput{
-			TargetLedgerID: r.ledger.ID,
-			Amount:         r.amount,
+			TargetLedgerID: a.ledger.ID,
+			Amount:         a.amount,
+			Note:           a.note,
 		})
 	}
 	group, children, err := api.RunSplit(t.db, api.SplitInput{
-		SourceLedgerID: sourceID,
+		SourceLedgerID: src.ID,
 		UserID:         conn.UserID,
 		Type:           "expense",
 		CategoryID:     cat.ID,
-		Note:           note,
+		Note:           groupNote,
 		Date:           time.Now(),
 		Allocations:    allocations,
 	})
 	if err != nil {
 		if api.IsSplitBadRequest(err) {
-			t.sendReply(msg.Chat.ID, "分账失败："+err.Error())
-		} else {
-			t.sendReply(msg.Chat.ID, "分账失败，请稍后再试。")
+			return "分账失败：" + err.Error()
 		}
-		return
+		return "分账失败，请稍后再试。"
 	}
 
-	// --- Reply summary
+	// --- Reply summary ---
 	loc := "zh"
 	if preferEn {
 		loc = "en"
@@ -306,37 +248,249 @@ func (t *TelegramAdapter) handleSplit(msg *tgbotapi.Message) {
 	if preferEn {
 		header = fmt.Sprintf("✅ Split created: ¥%.2f · %s · %d children", group.TotalAmount, catLabel, len(children))
 	}
-	lines := []string{header, "源账本：" + src.Name}
-	for _, r := range resolved {
-		lines = append(lines, fmt.Sprintf("  • %s ¥%.2f", r.ledger.Name, r.amount))
+	lines := []string{header}
+	if preferEn {
+		lines = append(lines, "Source: "+src.Name)
+	} else {
+		lines = append(lines, "源账本："+src.Name)
 	}
-	if note != "" {
-		lines = append(lines, "备注："+note)
+	for _, a := range parsed.allocs {
+		row := fmt.Sprintf("  • %s ¥%.2f", a.ledger.Name, a.amount)
+		if a.note != "" {
+			row += fmt.Sprintf("（%s）", a.note)
+		}
+		lines = append(lines, row)
 	}
-	t.sendReply(msg.Chat.ID, strings.Join(lines, "\n"))
+	if groupNote != "" {
+		if preferEn {
+			lines = append(lines, "Note: "+groupNote)
+		} else {
+			lines = append(lines, "备注："+groupNote)
+		}
+	}
+	if autoFromPersonal != "" {
+		if preferEn {
+			lines = append(lines, fmt.Sprintf("(default ledger %s auto-routed to family %s)", autoFromPersonal, src.Name))
+		} else {
+			lines = append(lines, fmt.Sprintf("（默认账本是 %s，已自动切换到家庭账本 %s）", autoFromPersonal, src.Name))
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
-// extractParenNotes pulls every `(...)` and `（...）` span out of `text` and
-// returns the inner contents plus the original text minus those spans.
-// Mirrors the parenRe behaviour used in ParseMessage so /split feels
-// consistent with plain-message recording.
-func extractParenNotes(text string) (notes []string, stripped string) {
-	out := text
-	for {
-		start := strings.IndexAny(out, "(（")
-		if start < 0 {
-			break
+// resolveSplitSource implements the precedence chain described in plan3.md
+// Phase 1. It returns the chosen family ledger and, when the source was
+// auto-promoted from a personal default ledger, the personal ledger's name
+// (for the user-facing hint). The returned error is already user-facing.
+func (t *TelegramAdapter) resolveSplitSource(conn models.UserConnection, override string, preferEn bool) (models.Ledger, string, error) {
+	// Override path (`@账本名 分账 …`)
+	if override != "" {
+		l, ok := t.resolveLedgerByName(conn.UserID, override)
+		if !ok {
+			return models.Ledger{}, "", fmt.Errorf("找不到名为 %q 的账本，已忽略 @ 前缀。", override)
 		}
-		// find matching close character (we don't try to balance nested groups)
-		end := strings.IndexAny(out[start+1:], ")）")
-		if end < 0 {
-			break
+		if l.Type != "family" {
+			return models.Ledger{}, "", fmt.Errorf("/split 只能在家庭账本中执行，%q 不是家庭账本。", l.Name)
 		}
-		end += start + 1
-		notes = append(notes, strings.TrimSpace(out[start+1:end]))
-		out = strings.TrimSpace(out[:start] + " " + out[end+1:])
+		if !service.UserCanWriteLedger(t.db, conn.UserID, l.ID) {
+			return models.Ledger{}, "", fmt.Errorf("没有写入 %q 的权限。", l.Name)
+		}
+		return l, "", nil
 	}
-	return notes, out
+
+	// Default-ledger path
+	if conn.DefaultLedgerID != nil {
+		var def models.Ledger
+		if err := t.db.First(&def, "id = ?", *conn.DefaultLedgerID).Error; err == nil {
+			if def.Type == "family" && service.UserCanWriteLedger(t.db, conn.UserID, def.ID) {
+				return def, "", nil
+			}
+			if def.Type == "personal" {
+				// Find any writable family that links this personal sub.
+				var lk models.LedgerFamilyLink
+				if err := t.db.Where("personal_ledger_id = ?", def.ID).First(&lk).Error; err == nil {
+					var fam models.Ledger
+					if err := t.db.First(&fam, "id = ?", lk.FamilyLedgerID).Error; err == nil && service.UserCanWriteLedger(t.db, conn.UserID, fam.ID) {
+						return fam, def.Name, nil
+					}
+				}
+			}
+		}
+	}
+
+	// Single-writable-family fallback
+	var lus []models.LedgerUser
+	t.db.Where("user_id = ?", conn.UserID).Find(&lus)
+	if len(lus) == 0 {
+		return models.Ledger{}, "", fmt.Errorf("未找到账本，请先在 Web 端创建一个账本。")
+	}
+	ids := make([]uuid.UUID, 0, len(lus))
+	for _, lu := range lus {
+		ids = append(ids, lu.LedgerID)
+	}
+	var families []models.Ledger
+	t.db.Where("id IN ? AND type = ?", ids, "family").Find(&families)
+	writable := families[:0]
+	for _, f := range families {
+		if service.UserCanWriteLedger(t.db, conn.UserID, f.ID) {
+			writable = append(writable, f)
+		}
+	}
+	switch len(writable) {
+	case 0:
+		if preferEn {
+			return models.Ledger{}, "", fmt.Errorf("No writable family ledger found. Create one in the web app first.")
+		}
+		return models.Ledger{}, "", fmt.Errorf("未找到可写的家庭账本，请先在 Web 端创建并关联子账本。")
+	case 1:
+		return writable[0], "", nil
+	default:
+		names := make([]string, 0, len(writable))
+		for _, f := range writable {
+			names = append(names, f.Name)
+		}
+		sort.Strings(names)
+		if preferEn {
+			return models.Ledger{}, "", fmt.Errorf("Multiple family ledgers found: %s. Use /ledger <name> to pick one.", strings.Join(names, ", "))
+		}
+		return models.Ledger{}, "", fmt.Errorf("找到多个家庭账本：%s；请先用 /ledger <名称> 选定。", strings.Join(names, "、"))
+	}
+}
+
+// splitAllocSpec is one resolved allocation slot.
+type splitAllocSpec struct {
+	ledger models.Ledger
+	amount float64
+	hasAmt bool
+	note   string
+}
+
+// splitParseResult is the structured output of parseSplitArgs.
+type splitParseResult struct {
+	total     float64
+	haveTotal bool
+	allocs    []splitAllocSpec
+	freeText  string
+}
+
+// parseSplitArgs walks the whitespace-separated tokens of `args`, classifying
+// each into the total, an allocation, or free text. See plan3.md Phase 2.
+//
+// `subByName` is keyed by lowercase sub-ledger name and is used to resolve
+// allocation tokens. Returns an empty error string on success or a
+// user-facing message on hard failure (duplicate target, unknown @-prefix,
+// invalid amount, etc.).
+func parseSplitArgs(args string, subByName map[string]models.Ledger) (splitParseResult, string) {
+	out := splitParseResult{}
+	tokens := strings.Fields(args)
+	seen := map[uuid.UUID]struct{}{}
+	freeWords := make([]string, 0, len(tokens))
+
+	for _, tok := range tokens {
+		hasAt := strings.HasPrefix(tok, "@")
+		body := tok
+		if hasAt {
+			body = tok[1:]
+		}
+
+		// Try total first when no `@` and no leading numeric+name combo.
+		if !out.haveTotal && !hasAt && isPlainAmount(tok) {
+			if v, err := strconv.ParseFloat(strings.TrimRight(strings.TrimRight(tok, "元"), "¥￥"), 64); err == nil && v > 0 {
+				out.total = v
+				out.haveTotal = true
+				continue
+			}
+		}
+
+		m := allocTokenRe.FindStringSubmatch(body)
+		if m != nil {
+			leadAmt := m[1]
+			name := strings.TrimSpace(m[2])
+			tailAmt := m[3]
+			note := strings.TrimSpace(m[4])
+
+			lookup, known := subByName[strings.ToLower(name)]
+			if !known {
+				// fallback to prefix match
+				matches := []models.Ledger{}
+				for k, v := range subByName {
+					if strings.HasPrefix(k, strings.ToLower(name)) {
+						matches = append(matches, v)
+					}
+				}
+				if len(matches) == 1 {
+					lookup = matches[0]
+					known = true
+				}
+			}
+
+			if hasAt {
+				// `@name` is always an allocation; unknown name is an error.
+				if !known {
+					return out, fmt.Sprintf("子账本 %q 找不到或不唯一，可用：%s", name, joinLedgerNames(subsValues(subByName)))
+				}
+			} else if !known {
+				// Bare token that doesn't resolve → free text.
+				freeWords = append(freeWords, tok)
+				continue
+			}
+
+			if _, dup := seen[lookup.ID]; dup {
+				return out, fmt.Sprintf("重复的子账本：%s", lookup.Name)
+			}
+			seen[lookup.ID] = struct{}{}
+
+			spec := splitAllocSpec{ledger: lookup, note: note}
+			amtStr := leadAmt
+			if amtStr == "" {
+				amtStr = tailAmt
+			}
+			if amtStr != "" {
+				v, err := strconv.ParseFloat(amtStr, 64)
+				if err != nil || v <= 0 {
+					return out, fmt.Sprintf("金额格式无效：%s", tok)
+				}
+				spec.amount = v
+				spec.hasAmt = true
+			}
+			out.allocs = append(out.allocs, spec)
+			continue
+		}
+
+		freeWords = append(freeWords, tok)
+	}
+
+	out.freeText = strings.Join(freeWords, " ")
+	return out, ""
+}
+
+// isPlainAmount returns true if tok looks like a bare number (optionally
+// suffixed with currency markers) and contains no `@`/`=` separators.
+func isPlainAmount(tok string) bool {
+	if tok == "" {
+		return false
+	}
+	if strings.ContainsAny(tok, "@=＝") {
+		return false
+	}
+	stripped := strings.TrimRight(strings.TrimRight(tok, "元"), "¥￥")
+	if stripped == "" {
+		return false
+	}
+	for _, r := range stripped {
+		if (r < '0' || r > '9') && r != '.' {
+			return false
+		}
+	}
+	return true
+}
+
+func subsValues(m map[string]models.Ledger) []models.Ledger {
+	out := make([]models.Ledger, 0, len(m))
+	for _, v := range m {
+		out = append(out, v)
+	}
+	return out
 }
 
 func joinLedgerNames(ls []models.Ledger) string {
@@ -344,5 +498,6 @@ func joinLedgerNames(ls []models.Ledger) string {
 	for _, l := range ls {
 		names = append(names, l.Name)
 	}
+	sort.Strings(names)
 	return strings.Join(names, ", ")
 }

@@ -633,6 +633,8 @@ func splitGroupJSON(g models.SplitGroup, children []models.Transaction) gin.H {
 type SplitAllocationInput struct {
 	TargetLedgerID uuid.UUID
 	Amount         float64
+	// Note, if non-empty, overrides the group-level note for this child.
+	Note string
 }
 
 // SplitInput is the public input to RunSplit.
@@ -661,10 +663,15 @@ func RunSplit(db *gorm.DB, in SplitInput) (models.SplitGroup, []models.Transacti
 	}
 	allocs := make([]splitAllocationReq, 0, len(in.Allocations))
 	for _, a := range in.Allocations {
-		allocs = append(allocs, splitAllocationReq{
+		row := splitAllocationReq{
 			TargetLedgerID: a.TargetLedgerID,
 			Amount:         a.Amount,
-		})
+		}
+		if a.Note != "" {
+			n := a.Note
+			row.Note = &n
+		}
+		allocs = append(allocs, row)
 	}
 	return execSplit(db, in.UserID, execSplitParams{
 		SourceLedgerID: in.SourceLedgerID,
