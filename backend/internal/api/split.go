@@ -462,18 +462,7 @@ func execSplit(db *gorm.DB, userID uuid.UUID, p execSplitParams) (models.SplitGr
 	}
 
 	// 6) Create one child transaction per allocation in its target ledger.
-	// Pre-load the parent (source-ledger) category so we can auto-map by
-	// NameZh/NameEn/Type to the equivalent category in each target sub-ledger
-	// when the user hasn't picked a per-allocation override. The default
-	// category seeds use identical names across ledgers, so this mapping
-	// succeeds for the common case without forcing the user to pick a
-	// category per row.
-	var parentCat models.Category
-	if err := db.Where("id = ?", p.CategoryID).First(&parentCat).Error; err != nil {
-		return models.SplitGroup{}, nil, badSplit("source category not found")
-	}
-
-	// Pre-load parent tags (if any) for name-based mapping.
+	// Pre-load parent tags (if any) for name-based mapping into target ledgers.
 	var parentTags []models.Tag
 	if len(p.TagIDs) > 0 {
 		if err := db.Where("id IN ?", p.TagIDs).Find(&parentTags).Error; err != nil {
