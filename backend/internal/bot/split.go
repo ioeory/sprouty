@@ -45,14 +45,22 @@ var allocTokenRe = regexp.MustCompile(`^(\d+(?:\.\d+)?)?@?([^\s()（）=＝]+?)(
 // payload.
 var splitTriggerRe = regexp.MustCompile(`^(?i:split|分账)[\s　]*`)
 
+// amountFirstSplitTriggerRe matches chatty Chinese input where the user leads
+// with the amount, then says 分账/split: `100 分账 水果 TEST 0507`.
+// Group 1 is the numeric amount; group 2 is the remainder after the trigger.
+var amountFirstSplitTriggerRe = regexp.MustCompile(`^[¥￥$]?(\d+(?:\.\d+)?)[元¥￥]?[\s　]*(?i:split|分账)[\s　]*(.*)$`)
+
 // matchSplitTrigger returns the args portion if `text` is a plain-message
 // /split invocation, plus a flag indicating a match.
 func matchSplitTrigger(text string) (args string, ok bool) {
 	loc := splitTriggerRe.FindStringIndex(text)
-	if loc == nil {
-		return "", false
+	if loc != nil {
+		return strings.TrimSpace(text[loc[1]:]), true
 	}
-	return strings.TrimSpace(text[loc[1]:]), true
+	if m := amountFirstSplitTriggerRe.FindStringSubmatch(text); m != nil {
+		return strings.TrimSpace(m[1] + " " + m[2]), true
+	}
+	return "", false
 }
 
 // handleSplit implements the /split command. It is a thin shell around

@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -18,6 +19,9 @@ func TestMatchSplitTrigger(t *testing.T) {
 		{"分账　100 水果", "100 水果"},
 		{"split 100 fruit", "100 fruit"},
 		{"SPLIT100 fruit", "100 fruit"},
+		{"100 分账 水果 TEST 0507", "100 水果 TEST 0507"},
+		{"100分账 水果 TEST", "100 水果 TEST"},
+		{"¥100 分账 水果", "100 水果"},
 	}
 	for _, tc := range cases {
 		got, ok := matchSplitTrigger(tc.input)
@@ -97,6 +101,77 @@ func TestSplitFreeTextParseCompactDate(t *testing.T) {
 	want := time.Date(2026, 5, 7, 0, 0, 0, 0, time.Local)
 	if !pr.Date.Equal(want) {
 		t.Fatalf("Date = %v, want %v", pr.Date, want)
+	}
+}
+
+func TestAmountFirstSplitTriggerFeedsCompactDate(t *testing.T) {
+	args, ok := matchSplitTrigger("100 分账 水果 TEST 0507")
+	if !ok {
+		t.Fatalf("amount-first trigger did not match")
+	}
+	parsed, msg := parseSplitArgs(args, map[string]models.Ledger{})
+	if msg != "" {
+		t.Fatalf("parseSplitArgs returned error: %s", msg)
+	}
+	if !parsed.haveTotal || parsed.total != 100 {
+		t.Fatalf("total = %v/%v", parsed.total, parsed.haveTotal)
+	}
+	pr := ParseMessage(parsed.freeText+" 100", timeNowForSplitTest(), nil)
+	if pr.CategoryHint != "水果 TEST" {
+		t.Fatalf("CategoryHint = %q", pr.CategoryHint)
+	}
+	want := time.Date(2026, 5, 7, 0, 0, 0, 0, time.Local)
+	if !pr.DateResolved || !pr.Date.Equal(want) {
+		t.Fatalf("Date = %v resolved=%v, want %v", pr.Date, pr.DateResolved, want)
+	}
+}
+
+func TestEnglishSplitTriggersFeedCompactDate(t *testing.T) {
+	cases := []struct {
+		input      string
+		wantArgs   string
+		wantAmount float64
+		wantCat    string
+		wantDate   time.Time
+	}{
+		{
+			input:      "100 split coffee 0507",
+			wantArgs:   "100 coffee 0507",
+			wantAmount: 100,
+			wantCat:    "coffee",
+			wantDate:   time.Date(2026, 5, 7, 0, 0, 0, 0, time.Local),
+		},
+		{
+			input:      "split 200 dinner 20260507",
+			wantArgs:   "200 dinner 20260507",
+			wantAmount: 200,
+			wantCat:    "dinner",
+			wantDate:   time.Date(2026, 5, 7, 0, 0, 0, 0, time.Local),
+		},
+	}
+
+	for _, tc := range cases {
+		args, ok := matchSplitTrigger(tc.input)
+		if !ok {
+			t.Fatalf("%q did not match split trigger", tc.input)
+		}
+		if args != tc.wantArgs {
+			t.Fatalf("%q args = %q, want %q", tc.input, args, tc.wantArgs)
+		}
+		parsed, msg := parseSplitArgs(args, map[string]models.Ledger{})
+		if msg != "" {
+			t.Fatalf("parseSplitArgs(%q) error = %s", args, msg)
+		}
+		if !parsed.haveTotal || parsed.total != tc.wantAmount {
+			t.Fatalf("%q total = %v/%v", tc.input, parsed.total, parsed.haveTotal)
+		}
+		pr := ParseMessage(parsed.freeText+" "+strconv.FormatFloat(parsed.total, 'f', -1, 64), timeNowForSplitTest(), nil)
+		if pr.CategoryHint != tc.wantCat {
+			t.Fatalf("%q category = %q, want %q", tc.input, pr.CategoryHint, tc.wantCat)
+		}
+		if !pr.DateResolved || !pr.Date.Equal(tc.wantDate) {
+			t.Fatalf("%q date = %v resolved=%v, want %v", tc.input, pr.Date, pr.DateResolved, tc.wantDate)
+		}
 	}
 }
 
