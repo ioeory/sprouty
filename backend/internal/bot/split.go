@@ -2,6 +2,7 @@ package bot
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"regexp"
 	"sort"
@@ -208,10 +209,17 @@ func (t *TelegramAdapter) runSplit(conn models.UserConnection, args string, pref
 		categoryHint = freeText
 	}
 	cat, matched := t.resolveCategory(src.ID, categoryHint, "expense", preferEn)
+	groupNote := ""
 	if !matched {
-		return t.noCategoryReply(src.ID, categoryHint, preferEn)
+		fallback, ok := t.fallbackCategory(src.ID, "expense")
+		if !ok {
+			return t.noCategoryReply(src.ID, categoryHint, preferEn)
+		}
+		cat = fallback
+		groupNote = strings.TrimSpace(freeText)
+	} else {
+		groupNote = t.noteWithoutMatchedCategory(src.ID, cat, pr.Note, categoryHint)
 	}
-	groupNote := strings.TrimSpace(pr.Note)
 
 	// --- Build allocations for api.RunSplit (Phase 4: per-child note) ---
 	allocations := make([]api.SplitAllocationInput, 0, len(parsed.allocs))
@@ -237,6 +245,8 @@ func (t *TelegramAdapter) runSplit(conn models.UserConnection, args string, pref
 		}
 		return "分账失败，请稍后再试。"
 	}
+
+	attachedNames := t.attachSplitTags(children, pr.TagHints)
 
 	// --- Reply summary ---
 	loc := "zh"
@@ -268,6 +278,13 @@ func (t *TelegramAdapter) runSplit(conn models.UserConnection, args string, pref
 			lines = append(lines, "备注："+groupNote)
 		}
 	}
+	if len(attachedNames) > 0 {
+		if preferEn {
+			lines = append(lines, "Tags: "+strings.Join(attachedNames, ", "))
+		} else {
+			lines = append(lines, "标签："+strings.Join(attachedNames, "、"))
+		}
+	}
 	if autoFromPersonal != "" {
 		if preferEn {
 			lines = append(lines, fmt.Sprintf("(default ledger %s auto-routed to family %s)", autoFromPersonal, src.Name))
@@ -276,6 +293,88 @@ func (t *TelegramAdapter) runSplit(conn models.UserConnection, args string, pref
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func (t *TelegramAdapter) fallbackCategory(ledgerID uuid.UUID, txType string) (models.Category, bool) {
+	var cat models.Category
+	if err := t.db.Where("ledger_id = ? AND type = ?", ledgerID, txType).
+		Order("is_system DESC, sort_order ASC, created_at ASC").
+		First(&cat).Error; err != nil {
+		return models.Category{}, false
+	}
+	return cat, true
+}
+
+func (t *TelegramAdapter) noteWithoutMatchedCategory(ledgerID uuid.UUID, cat models.Category, note string, hint string) string {
+	note = strings.TrimSpace(note)
+	hint = strings.TrimSpace(hint)
+	if note == "" || note != hint {
+		return note
+	}
+	candidates := []string{cat.NameZh, cat.NameEn}
+	var kws []models.CategoryKeyword
+	t.db.Where("ledger_id = ? AND category_id = ?", ledgerID, cat.ID).Find(&kws)
+	for _, kw := range kws {
+		candidates = append(candidates, kw.KeywordZh, kw.KeywordEn)
+	}
+	best := ""
+	lowerHint := strings.ToLower(hint)
+	for _, c := range candidates {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		if strings.Contains(lowerHint, strings.ToLower(c)) && len([]rune(c)) > len([]rune(best)) {
+			best = c
+		}
+	}
+	if best == "" {
+		return note
+	}
+	return strings.TrimSpace(strings.Join(strings.Fields(removeFirstInsensitive(hint, best)), " "))
+}
+
+func removeFirstInsensitive(s string, needle string) string {
+	lower := strings.ToLower(s)
+	n := strings.ToLower(needle)
+	idx := strings.Index(lower, n)
+	if idx < 0 {
+		return s
+	}
+	return s[:idx] + " " + s[idx+len(needle):]
+}
+
+func (t *TelegramAdapter) attachSplitTags(children []models.Transaction, tagHints []string) []string {
+	if len(children) == 0 || len(tagHints) == 0 {
+		return nil
+	}
+	seenNames := map[string]struct{}{}
+	attachedNames := []string{}
+	for _, child := range children {
+		ids := make([]uuid.UUID, 0, len(tagHints))
+		for _, name := range tagHints {
+			tag, _, err := api.EnsureTag(child.LedgerID, name)
+			if err != nil {
+				log.Printf("bot split: ensure tag %q on ledger %s failed: %v", name, child.LedgerID, err)
+				continue
+			}
+			ids = append(ids, tag.ID)
+			key := strings.ToLower(strings.TrimSpace(tag.Name))
+			if key != "" {
+				if _, ok := seenNames[key]; !ok {
+					seenNames[key] = struct{}{}
+					attachedNames = append(attachedNames, tag.Name)
+				}
+			}
+		}
+		if len(ids) > 0 {
+			if err := api.ReplaceTransactionTags(t.db, child.ID, child.LedgerID, ids); err != nil {
+				log.Printf("bot split: replace tags on transaction %s failed: %v", child.ID, err)
+			}
+		}
+	}
+	sort.Strings(attachedNames)
+	return attachedNames
 }
 
 // resolveSplitSource implements the precedence chain described in plan3.md

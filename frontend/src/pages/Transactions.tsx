@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Search,
@@ -111,9 +111,9 @@ function useMutableLedgerIdSet(ledgers: { id: string }[]) {
   return useMemo(() => new Set(ledgers.map((l) => l.id)), [ledgers]);
 }
 
-function canMutateTransaction(tx: Transaction, currentLedgerId: string, mutableIds: Set<string>): boolean {
+function canMutateTransaction(tx: Transaction, currentLedgerId: string, mutableIds: Set<string>, currentLedgerType?: string): boolean {
   const lid = tx.ledger_id || currentLedgerId;
-  return mutableIds.has(lid);
+  return mutableIds.has(lid) || (!!tx.split_group_id && currentLedgerType === 'family' && mutableIds.has(currentLedgerId));
 }
 
 /** Local calendar bounds as `YYYY-MM-DD` for API date filters. */
@@ -172,6 +172,9 @@ export default function Transactions() {
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<Transaction | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [txFeedback, setTxFeedback] = useState('');
   const [pageSize, setPageSize] = useState(readStoredPageSize);
@@ -223,6 +226,12 @@ export default function Transactions() {
   const categoryLabel = (c: Category | undefined) =>
     (c && (pickCategoryDisplayName(i18n.language, c.name_zh, c.name_en) || c.name)) || '';
 
+  const canMutateInCurrentContext = useCallback(
+    (tx: Transaction) =>
+      !!currentLedger && canMutateTransaction(tx, currentLedger.id, mutableLedgerIds, currentLedger.type),
+    [currentLedger, mutableLedgerIds],
+  );
+
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(timer);
@@ -273,6 +282,7 @@ export default function Transactions() {
       if (reset) {
         setTxs(items);
         setOffset(items.length);
+        setSelectedIds(new Set());
       } else {
         setTxs((prev) => [...prev, ...items]);
         setOffset((prev) => prev + items.length);
@@ -333,6 +343,23 @@ export default function Transactions() {
 
   const groups = useMemo(() => groupByDate(txs), [txs]);
 
+  const selectedTransactions = useMemo(
+    () => txs.filter((tx) => selectedIds.has(tx.id)),
+    [txs, selectedIds],
+  );
+
+  const selectedMutableTransactions = useMemo(
+    () => selectedTransactions.filter(canMutateInCurrentContext),
+    [selectedTransactions, canMutateInCurrentContext],
+  );
+
+  const selectedExpenseTotal = selectedMutableTransactions
+    .filter((tx) => tx.type === 'expense')
+    .reduce((sum, tx) => sum + tx.amount, 0);
+  const selectedIncomeTotal = selectedMutableTransactions
+    .filter((tx) => tx.type === 'income')
+    .reduce((sum, tx) => sum + tx.amount, 0);
+
   const loadedTotals = useMemo(() => {
     return txs.reduce(
       (acc, t) => {
@@ -368,11 +395,24 @@ export default function Transactions() {
     setLedgerFilter([]);
   };
 
+  const toggleSelected = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectVisibleMutable = () => {
+    setSelectedIds(new Set(txs.filter(canMutateInCurrentContext).map((tx) => tx.id)));
+  };
+
   const maxBillMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
 
   const confirmDelete = async () => {
     if (!deleting) return;
-    if (!canMutateTransaction(deleting, currentLedger.id, mutableLedgerIds)) {
+    if (!currentLedger || !canMutateInCurrentContext(deleting)) {
       setTxFeedback(t('transactions:deleteForbiddenMerged'));
       setDeleting(null);
       return;
@@ -388,8 +428,33 @@ export default function Transactions() {
       const msg =
         (err as { response?: { data?: { error?: string } } })?.response?.data?.error || t('transactions:deleteFailed');
       setTxFeedback(msg);
+      setDeleting(null);
     } finally {
       setConfirmLoading(false);
+    }
+  };
+
+  const confirmBulkDelete = async () => {
+    if (selectedMutableTransactions.length === 0) {
+      setTxFeedback(t('transactions:bulkDeleteNoSelection'));
+      setBulkDeleteOpen(false);
+      return;
+    }
+    setBulkDeleting(true);
+    setTxFeedback('');
+    try {
+      await api.post('/transactions/bulk-delete', { ids: selectedMutableTransactions.map((tx) => tx.id) });
+      setSelectedIds(new Set());
+      setBulkDeleteOpen(false);
+      load(true);
+      if (showSplitGroups) void loadSplitGroups();
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+        t('transactions:bulkDeleteFailed');
+      setTxFeedback(msg);
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -660,6 +725,32 @@ export default function Transactions() {
         </Card>
       )}
 
+      {selectedIds.size > 0 && (
+        <Card padding="sm" className="border-[var(--color-brand)]">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-medium text-[var(--color-text)]">
+                {t('transactions:bulkSelectedCount', { count: selectedMutableTransactions.length })}
+              </p>
+              <p className="text-xs text-[var(--color-text-subtle)] mt-0.5">
+                {t('transactions:bulkSelectedTotals', {
+                  expense: selectedExpenseTotal.toFixed(2),
+                  income: selectedIncomeTotal.toFixed(2),
+                })}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
+                {t('transactions:bulkClearSelection')}
+              </Button>
+              <Button variant="danger" size="sm" leftIcon={<Trash2 size={14} />} onClick={() => setBulkDeleteOpen(true)}>
+                {t('transactions:bulkDelete')}
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {/* List */}
       <Card padding="none">
         {loading && txs.length === 0 ? (
@@ -687,6 +778,20 @@ export default function Transactions() {
           />
         ) : (
           <div>
+            <div className="flex items-center justify-between px-5 py-2 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+              <button
+                type="button"
+                onClick={selectVisibleMutable}
+                className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+              >
+                {t('transactions:bulkSelectVisible')}
+              </button>
+              {selectedIds.size > 0 && (
+                <span className="text-[11px] text-[var(--color-text-subtle)]">
+                  {t('transactions:bulkSelectedCount', { count: selectedMutableTransactions.length })}
+                </span>
+              )}
+            </div>
             {groups.map(([dateKey, list]) => {
               const dayExpense = list.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
               const dayIncome = list.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0);
@@ -713,12 +818,22 @@ export default function Transactions() {
                         tx.ledger_id && tx.ledger_id !== currentLedger.id
                           ? ledgers.find((l) => l.id === tx.ledger_id)?.name
                           : null;
-                      const canMutate = canMutateTransaction(tx, currentLedger.id, mutableLedgerIds);
+                      const canMutate = canMutateInCurrentContext(tx);
+                      const selected = selectedIds.has(tx.id);
                       return (
                         <li
                           key={tx.id}
                           className="group flex items-center gap-3 px-5 py-3 hover:bg-[var(--color-surface-hover)] transition-colors"
                         >
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            disabled={!canMutate}
+                            onChange={() => toggleSelected(tx.id)}
+                            title={canMutate ? t('transactions:bulkSelectRow') : t('transactions:bulkSelectReadonly')}
+                            className="w-4 h-4 accent-[var(--color-brand)] disabled:opacity-40 shrink-0"
+                            aria-label={t('transactions:bulkSelectRow')}
+                          />
                           <CategoryIcon name={cat?.icon} color={cat?.color} size={36} />
                           <div className="flex-1 min-w-0">
                             <p className="text-sm text-[var(--color-text)] truncate flex items-center gap-1.5 flex-wrap">
@@ -798,7 +913,7 @@ export default function Transactions() {
                           >
                             <button
                               type="button"
-                              disabled={!canMutate}
+                              aria-disabled={!canMutate}
                               onClick={() => {
                                 if (!canMutate) {
                                   setTxFeedback(t('transactions:editForbidden'));
@@ -810,7 +925,9 @@ export default function Transactions() {
                               title={
                                 canMutate ? t('transactions:edit') : t('transactions:editForbiddenTitle')
                               }
-                              className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-subtle)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[var(--color-text-subtle)]"
+                              className={`w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-subtle)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)] ${
+                                canMutate ? '' : 'opacity-40 cursor-not-allowed hover:bg-transparent hover:text-[var(--color-text-subtle)]'
+                              }`}
                             >
                               <Pencil size={13} />
                             </button>
@@ -853,7 +970,7 @@ export default function Transactions() {
                             )}
                             <button
                               type="button"
-                              disabled={!canMutate}
+                              aria-disabled={!canMutate}
                               onClick={() => {
                                 if (!canMutate) {
                                   setTxFeedback(t('transactions:deleteForbiddenMerged'));
@@ -863,7 +980,9 @@ export default function Transactions() {
                                 setDeleting(tx);
                               }}
                               title={canMutate ? t('common:delete') : t('transactions:deleteForbiddenTitle')}
-                              className="w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-subtle)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[var(--color-text-subtle)]"
+                              className={`w-7 h-7 flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-subtle)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] ${
+                                canMutate ? '' : 'opacity-40 cursor-not-allowed hover:bg-transparent hover:text-[var(--color-text-subtle)]'
+                              }`}
                             >
                               <Trash2 size={13} />
                             </button>
@@ -987,6 +1106,37 @@ export default function Transactions() {
             </span>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        open={bulkDeleteOpen}
+        onClose={() => setBulkDeleteOpen(false)}
+        size="sm"
+        title={t('transactions:bulkConfirmDeleteTitle')}
+        description={t('transactions:bulkConfirmDeleteDesc', { count: selectedMutableTransactions.length })}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setBulkDeleteOpen(false)}>
+              {t('common:cancel')}
+            </Button>
+            <Button variant="danger" loading={bulkDeleting} onClick={confirmBulkDelete}>
+              {t('transactions:bulkDelete')}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-2 text-sm text-[var(--color-text)]">
+          <p>{t('transactions:bulkConfirmDeleteImpact')}</p>
+          <div className="rounded-[var(--radius-md)] bg-[var(--color-surface-muted)] p-3 text-xs text-[var(--color-text-muted)]">
+            <p>
+              {t('transactions:bulkSelectedTotals', {
+                expense: selectedExpenseTotal.toFixed(2),
+                income: selectedIncomeTotal.toFixed(2),
+              })}
+            </p>
+            <p className="mt-1">{t('transactions:bulkSplitWarning')}</p>
+          </div>
+        </div>
       </Modal>
     </div>
   );

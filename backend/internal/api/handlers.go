@@ -679,11 +679,11 @@ func UpdateTransaction(c *gin.Context) {
 		return
 	}
 
-	if !userCanAccessLedger(userID, tx.LedgerID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "无权限修改该流水：您不是该笔记录所属账本的成员（例如家庭视图下合并展示了他人的关联子账流水）"})
+	if ok, msg, err := canMutateTransactionForUser(service.DB, userID, tx); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify permissions"})
 		return
-	}
-	if respondLedgerViewerForbidden(c, userID, tx.LedgerID) {
+	} else if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": msg})
 		return
 	}
 
@@ -755,7 +755,7 @@ func UpdateTransaction(c *gin.Context) {
 		}
 	}
 
-	// If this transaction is part of a split group and amount changed, refresh the group total.
+	// If this transaction is part of a split group, refresh the group total.
 	if tx.SplitGroupID != nil {
 		recalcSplitGroupTotal(service.DB, *tx.SplitGroupID)
 	}
@@ -778,34 +778,129 @@ func DeleteTransaction(c *gin.Context) {
 		return
 	}
 
-	if !userCanAccessLedger(userID, tx.LedgerID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "无法删除该流水：您不是该笔记录所属账本的成员（例如他人关联到家庭账的个人子账中的记录）"})
+	if ok, msg, err := canMutateTransactionForUser(service.DB, userID, tx); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify permissions"})
 		return
-	}
-	if respondLedgerViewerForbidden(c, userID, tx.LedgerID) {
+	} else if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": msg})
 		return
 	}
 
-	// Remove tag junction rows first so we don't leave dangling links.
-	service.DB.Where("transaction_id = ?", tx.ID).Delete(&models.TransactionTag{})
-	if err := service.DB.Delete(&tx).Error; err != nil {
+	if err := deleteTransactionsAtomic(service.DB, []models.Transaction{tx}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete"})
 		return
-	}
-	// If this row was a split child, refresh its group total. If the group is
-	// now empty, the user can clean it up via DELETE /split-groups/:id; we
-	// don't auto-delete here so the group's metadata (date, note, etc.) is
-	// preserved for the UI in case the user re-adds a child.
-	if tx.SplitGroupID != nil {
-		recalcSplitGroupTotal(service.DB, *tx.SplitGroupID)
 	}
 	c.Status(http.StatusNoContent)
 }
 
+// BulkDeleteTransactions removes multiple transactions atomically. If any id
+// is missing or unauthorized, no rows are deleted.
+func BulkDeleteTransactions(c *gin.Context) {
+	userID, err := currentUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid session"})
+		return
+	}
+
+	var req struct {
+		IDs []uuid.UUID `json:"ids" binding:"required,min=1"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	unique := make([]uuid.UUID, 0, len(req.IDs))
+	seen := map[uuid.UUID]struct{}{}
+	for _, id := range req.IDs {
+		if id == uuid.Nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid transaction id"})
+			return
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+
+	var txs []models.Transaction
+	if err := service.DB.Where("id IN ?", unique).Find(&txs).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load transactions"})
+		return
+	}
+	if len(txs) != len(unique) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "some transactions were not found"})
+		return
+	}
+
+	for _, tx := range txs {
+		if ok, msg, err := canMutateTransactionForUser(service.DB, userID, tx); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify permissions"})
+			return
+		} else if !ok {
+			c.JSON(http.StatusForbidden, gin.H{"error": msg})
+			return
+		}
+	}
+
+	if err := deleteTransactionsAtomic(service.DB, txs); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete transactions"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"deleted": len(txs)})
+}
+
+func canMutateTransactionForUser(db *gorm.DB, userID uuid.UUID, tx models.Transaction) (bool, string, error) {
+	if userCanAccessLedgerDB(db, userID, tx.LedgerID) && service.UserCanWriteLedger(db, userID, tx.LedgerID) {
+		return true, "", nil
+	}
+	if tx.SplitGroupID != nil {
+		var sg models.SplitGroup
+		if err := db.First(&sg, "id = ?", *tx.SplitGroupID).Error; err != nil {
+			return false, "", err
+		}
+		if userCanAccessLedgerDB(db, userID, sg.SourceLedgerID) && service.UserCanWriteLedger(db, userID, sg.SourceLedgerID) {
+			return true, "", nil
+		}
+	}
+	return false, "无权限操作该流水：您不是该笔记录所属账本或分账源家庭账本的可写成员。", nil
+}
+
+func deleteTransactionsAtomic(db *gorm.DB, txs []models.Transaction) error {
+	return db.Transaction(func(txdb *gorm.DB) error {
+		affectedSplitGroups := map[uuid.UUID]struct{}{}
+		ids := make([]uuid.UUID, 0, len(txs))
+		for _, row := range txs {
+			ids = append(ids, row.ID)
+			if row.SplitGroupID != nil {
+				affectedSplitGroups[*row.SplitGroupID] = struct{}{}
+			}
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		if err := txdb.Where("transaction_id IN ?", ids).Delete(&models.TransactionTag{}).Error; err != nil {
+			return err
+		}
+		if err := txdb.Where("id IN ?", ids).Delete(&models.Transaction{}).Error; err != nil {
+			return err
+		}
+		for groupID := range affectedSplitGroups {
+			recalcOrDeleteEmptySplitGroup(txdb, groupID)
+		}
+		return nil
+	})
+}
+
 // userCanAccessLedger checks if the user is a member of the given ledger
 func userCanAccessLedger(userID uuid.UUID, ledgerID uuid.UUID) bool {
+	return userCanAccessLedgerDB(service.DB, userID, ledgerID)
+}
+
+func userCanAccessLedgerDB(db *gorm.DB, userID uuid.UUID, ledgerID uuid.UUID) bool {
 	var count int64
-	service.DB.Table("ledger_users").
+	db.Table("ledger_users").
 		Where("user_id = ? AND ledger_id = ?", userID, ledgerID).
 		Count(&count)
 	return count > 0
@@ -1053,25 +1148,25 @@ func GetDashboardSummary(c *gin.Context) {
 	}
 
 	emptyResponse := gin.H{
-		"total_budget":                 0,
-		"total_expense":                0,
-		"remaining_budget":             0,
-		"days_left":                    1,
-		"daily_avg_limit":              0,
-		"current_month":                currentMonth,
-		"year":                         targetYear,
-		"scope":                        scope,
-		"group_by":                     groupBy,
-		"period":                       period,
-		"is_current_month":             period == "month" && targetYear == now.Year() && targetMonth == now.Month(),
-		"category_stats":               []any{},
-		"project_stats":                []any{},
-		"ledger_stats":                 []any{},
-		"ledger_count":                 0,
-		"excluded_tags":                excludedTagsForResp,
-		"bypass_tag_filter":            bypassTags,
-		"includes_linked_personal":     false,
-		"linked_personal_in_cluster":   0,
+		"total_budget":               0,
+		"total_expense":              0,
+		"remaining_budget":           0,
+		"days_left":                  1,
+		"daily_avg_limit":            0,
+		"current_month":              currentMonth,
+		"year":                       targetYear,
+		"scope":                      scope,
+		"group_by":                   groupBy,
+		"period":                     period,
+		"is_current_month":           period == "month" && targetYear == now.Year() && targetMonth == now.Month(),
+		"category_stats":             []any{},
+		"project_stats":              []any{},
+		"ledger_stats":               []any{},
+		"ledger_count":               0,
+		"excluded_tags":              excludedTagsForResp,
+		"bypass_tag_filter":          bypassTags,
+		"includes_linked_personal":   false,
+		"linked_personal_in_cluster": 0,
 	}
 
 	if len(ledgerIDs) == 0 {
@@ -1152,12 +1247,12 @@ func GetDashboardSummary(c *gin.Context) {
 
 	// --- Pie slices (all three dimensions computed in parallel) ---
 	type PieStat struct {
-		Name         string  `json:"name"`
-		NameZh       string  `json:"name_zh,omitempty"`
-		NameEn       string  `json:"name_en,omitempty"`
-		CategoryID   string  `json:"category_id,omitempty"`
-		Value        float64 `json:"value"`
-		Color        string  `json:"color"`
+		Name       string  `json:"name"`
+		NameZh     string  `json:"name_zh,omitempty"`
+		NameEn     string  `json:"name_en,omitempty"`
+		CategoryID string  `json:"category_id,omitempty"`
+		Value      float64 `json:"value"`
+		Color      string  `json:"color"`
 	}
 
 	// By category (group by id so bilingual names don’t split one category)
@@ -1234,25 +1329,25 @@ func GetDashboardSummary(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"total_budget":                 totalBudget,
-		"total_expense":                totalExpense,
-		"remaining_budget":             remainingBudget,
-		"days_left":                    daysLeft,
-		"daily_avg_limit":              dailyAvg,
-		"current_month":                currentMonth,
-		"year":                         targetYear,
-		"scope":                        scope,
-		"group_by":                     groupBy,
-		"period":                       period,
-		"is_current_month":             isCurrentMonth,
-		"category_stats":               catStats,
-		"project_stats":                projectStats,
-		"ledger_stats":                 ledgerStats,
-		"ledger_count":                 len(ledgerIDs),
-		"excluded_tags":                excludedTagsForResp,
-		"bypass_tag_filter":            bypassTags,
-		"includes_linked_personal":     includesLinkedPersonal,
-		"linked_personal_in_cluster":   linkedPersonalInCluster,
+		"total_budget":               totalBudget,
+		"total_expense":              totalExpense,
+		"remaining_budget":           remainingBudget,
+		"days_left":                  daysLeft,
+		"daily_avg_limit":            dailyAvg,
+		"current_month":              currentMonth,
+		"year":                       targetYear,
+		"scope":                      scope,
+		"group_by":                   groupBy,
+		"period":                     period,
+		"is_current_month":           isCurrentMonth,
+		"category_stats":             catStats,
+		"project_stats":              projectStats,
+		"ledger_stats":               ledgerStats,
+		"ledger_count":               len(ledgerIDs),
+		"excluded_tags":              excludedTagsForResp,
+		"bypass_tag_filter":          bypassTags,
+		"includes_linked_personal":   includesLinkedPersonal,
+		"linked_personal_in_cluster": linkedPersonalInCluster,
 	})
 }
 

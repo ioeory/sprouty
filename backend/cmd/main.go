@@ -77,6 +77,7 @@ func main() {
 		protected.POST("/transactions", api.CreateTransaction)
 		protected.POST("/transactions/installment", api.CreateInstallment)
 		protected.POST("/transactions/split", api.CreateSplit)
+		protected.POST("/transactions/bulk-delete", api.BulkDeleteTransactions)
 		protected.POST("/transactions/:id/convert-to-split", api.ConvertTransactionToSplit)
 		protected.PUT("/transactions/:id", api.UpdateTransaction)
 		protected.DELETE("/transactions/:id", api.DeleteTransaction)

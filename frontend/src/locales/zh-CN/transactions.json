@@ -57,5 +57,18 @@
   "splitGroupsNoNote": "（无备注）",
   "splitGroupChildCount": "包含 {{count}} 条子分账",
   "filterLedgerLabel": "账本范围",
-  "filterLedgerSelfMain": "家庭主账本"
+  "filterLedgerSelfMain": "家庭主账本",
+  "bulkSelectVisible": "选择当前可操作流水",
+  "bulkSelectRow": "选择流水",
+  "bulkSelectReadonly": "只读流水不可选择",
+  "bulkSelectedCount": "已选择 {{count}} 条",
+  "bulkSelectedTotals": "支出 ¥{{expense}} · 收入 ¥{{income}}",
+  "bulkClearSelection": "取消选择",
+  "bulkDelete": "批量删除",
+  "bulkDeleteNoSelection": "请先选择可删除的流水",
+  "bulkDeleteFailed": "批量删除失败，请稍后重试",
+  "bulkConfirmDeleteTitle": "确认批量删除？",
+  "bulkConfirmDeleteDesc": "将删除 {{count}} 条流水，删除后无法恢复。",
+  "bulkConfirmDeleteImpact": "请确认这些流水都需要删除。",
+  "bulkSplitWarning": "若包含分账子流水，关联分账组金额会自动重算。"
 }

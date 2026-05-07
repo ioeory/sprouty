@@ -598,6 +598,16 @@ func recalcSplitGroupTotal(db *gorm.DB, groupID uuid.UUID) {
 	db.Model(&models.SplitGroup{}).Where("id = ?", groupID).Update("total_amount", sum)
 }
 
+func recalcOrDeleteEmptySplitGroup(db *gorm.DB, groupID uuid.UUID) {
+	var count int64
+	db.Model(&models.Transaction{}).Where("split_group_id = ?", groupID).Count(&count)
+	if count == 0 {
+		db.Delete(&models.SplitGroup{}, "id = ?", groupID)
+		return
+	}
+	recalcSplitGroupTotal(db, groupID)
+}
+
 // splitGroupJSON shapes a SplitGroup + its children for the wire format.
 func splitGroupJSON(g models.SplitGroup, children []models.Transaction) gin.H {
 	ids := make([]uuid.UUID, 0, len(children))

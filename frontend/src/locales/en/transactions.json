@@ -57,5 +57,18 @@
   "splitGroupsNoNote": "(no note)",
   "splitGroupChildCount": "{{count}} child record(s)",
   "filterLedgerLabel": "Ledger scope",
-  "filterLedgerSelfMain": "Family main"
+  "filterLedgerSelfMain": "Family main",
+  "bulkSelectVisible": "Select visible editable entries",
+  "bulkSelectRow": "Select transaction",
+  "bulkSelectReadonly": "Read-only entries cannot be selected",
+  "bulkSelectedCount": "{{count}} selected",
+  "bulkSelectedTotals": "Expenses ¥{{expense}} · Income ¥{{income}}",
+  "bulkClearSelection": "Clear selection",
+  "bulkDelete": "Delete selected",
+  "bulkDeleteNoSelection": "Select editable transactions first",
+  "bulkDeleteFailed": "Bulk delete failed. Try again later.",
+  "bulkConfirmDeleteTitle": "Delete selected entries?",
+  "bulkConfirmDeleteDesc": "This will delete {{count}} entries and cannot be undone.",
+  "bulkConfirmDeleteImpact": "Confirm these entries should be deleted.",
+  "bulkSplitWarning": "If split child entries are included, their split group totals will be recalculated."
 }

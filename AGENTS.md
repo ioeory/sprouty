@@ -33,8 +33,8 @@ Run these automatically when validating changes.
 - **JWT + Middleware**: AuthMiddleware extracts Bearer token; RequireAdmin checks role
 - **Multi-Account Ledgers**: Personal (owned) or family (shared via invites, ACL via `ledger_users`). ACL gate: [`service.UserCanAccessLedger`](backend/internal/service/ledger_acl.go) (read) and `service.UserCanWriteLedger` (write).
 - **Linked Ledgers**: Family ledgers can include personal sub-ledgers via `LedgerFamilyLink`. Dashboard / `ListTransactions` merge via the private `expandFamilyLinkedCluster(familyID)` in `backend/internal/api/`. `ListTransactions` accepts `?ledger_ids=` to intersect that cluster.
-- **Split groups**: A single family-ledger expense can be split into N child transactions across linked sub-ledgers. Metadata in `split_groups`; child rows are real transactions in their target ledgers. HTTP: `/transactions/split` and `/split-groups/*`. Cross-package entry point: `api.RunSplit(db, api.SplitInput)` (used by the bot to share validation with the HTTP path) — see [backend/internal/api/split.go](backend/internal/api/split.go).
-- **Telegram bot**: Long-polling adapter under `backend/internal/bot/`. Bindings live in `models.UserConnection` (`platform="telegram"`, `external_id=chat_id`, optional `default_ledger_id`). Plain messages flow through `parser.go` → `telegram.handlePlainMessage`. Commands: `/bind`, `/ledger`, `/split`. Ledger resolution precedence: leading `@账本名` → `ParseResult.LedgerHint` → `conn.DefaultLedgerID` → first `LedgerUser`.
+- **Split groups**: A single family-ledger expense can be split into N child transactions across linked sub-ledgers. Metadata in `split_groups`; child rows are real transactions in their target ledgers. HTTP: `/transactions/split` and `/split-groups/*`. Cross-package entry point: `api.RunSplit(db, api.SplitInput)` with per-child `SplitAllocationInput.Note` overrides — see [backend/internal/api/split.go](backend/internal/api/split.go).
+- **Telegram bot**: Long-polling adapter under `backend/internal/bot/`. Bindings live in `models.UserConnection` (`platform="telegram"`, `external_id=chat_id`, optional `default_ledger_id`). Plain messages flow through `parser.go` → `telegram.handlePlainMessage`. Commands: `/bind`, `/ledger`, `/split`. Plain-text triggers: leading `分账` or `split` (case-insensitive, ASCII / full-width / no space) routes to the same `runSplit` engine as `/split`. Ledger resolution precedence: leading `@账本名` → `ParseResult.LedgerHint` → `conn.DefaultLedgerID` → first `LedgerUser`. `/split` source resolution: `@override` → default ledger (family direct, or personal whose parent family is writable — replies show "auto-routed" hint) → single writable family fallback.
 
 ## Conventions
 - **GORM Patterns**: Base model with UUID + timestamps; eager load with .Preload(); inline Where() queries
@@ -77,4 +77,4 @@ Run these automatically when validating changes.
 - [frontend/README.md](frontend/README.md) - Frontend setup
 
 For details, see linked files and existing documentation.</content>
-<parameter name="filePath">/home/ioe/projects/sprouts-self/AGENTS.md
+<parameter name="filePath">AGENTS.md
