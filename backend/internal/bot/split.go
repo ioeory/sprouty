@@ -236,7 +236,7 @@ func (t *TelegramAdapter) runSplit(conn models.UserConnection, args string, pref
 		Type:           "expense",
 		CategoryID:     cat.ID,
 		Note:           groupNote,
-		Date:           time.Now(),
+		Date:           pr.Date,
 		Allocations:    allocations,
 	})
 	if err != nil {

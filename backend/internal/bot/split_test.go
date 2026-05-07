@@ -83,6 +83,23 @@ func TestSplitFreeTextParseKeepsCategoryKeywordInNote(t *testing.T) {
 	}
 }
 
+func TestSplitFreeTextParseCompactDate(t *testing.T) {
+	pr := ParseMessage("水果 TEST 0507 100", timeNowForSplitTest(), nil)
+	if pr.CategoryHint != "水果 TEST" {
+		t.Fatalf("CategoryHint = %q", pr.CategoryHint)
+	}
+	if pr.Note != "水果 TEST" {
+		t.Fatalf("Note = %q", pr.Note)
+	}
+	if !pr.DateResolved {
+		t.Fatalf("DateResolved = false")
+	}
+	want := time.Date(2026, 5, 7, 0, 0, 0, 0, time.Local)
+	if !pr.Date.Equal(want) {
+		t.Fatalf("Date = %v, want %v", pr.Date, want)
+	}
+}
+
 func timeNowForSplitTest() time.Time {
 	return time.Date(2026, 5, 8, 12, 0, 0, 0, time.Local)
 }
