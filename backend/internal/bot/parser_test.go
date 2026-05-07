@@ -130,6 +130,32 @@ func TestParseMessage(t *testing.T) {
 			wantDate:     time.Date(2026, 3, 28, 0, 0, 0, 0, now.Location()),
 		},
 		{
+			name:         "compact mmdd date with joined amount category",
+			input:        "100水果 0507",
+			wantAmount:   100,
+			wantCat:      "水果",
+			wantNote:     "水果",
+			dateResolved: true,
+			wantDate:     time.Date(2025, 5, 7, 0, 0, 0, 0, now.Location()),
+		},
+		{
+			name:         "compact yyyymmdd explicit future date",
+			input:        "200 咖啡 20270507",
+			wantAmount:   200,
+			wantCat:      "咖啡",
+			wantNote:     "咖啡",
+			dateResolved: true,
+			wantDate:     time.Date(2027, 5, 7, 0, 0, 0, 0, now.Location()),
+		},
+		{
+			name:       "bare four digits without another amount stays amount",
+			input:      "咖啡 0507",
+			wantAmount: 507,
+			wantCat:    "咖啡",
+			wantNote:   "咖啡",
+			wantDate:   now,
+		},
+		{
 			name:       "currency symbols",
 			input:      "¥12.5 咖啡",
 			wantAmount: 12.5,
@@ -167,6 +193,43 @@ func TestParseMessage(t *testing.T) {
 				t.Errorf("date: got %v, want %v", got.Date, tc.wantDate)
 			}
 		})
+	}
+}
+
+func TestParseMessageCompactDateExamples(t *testing.T) {
+	now := time.Date(2026, 5, 8, 12, 0, 0, 0, time.Local)
+
+	cases := []struct {
+		input      string
+		wantAmount float64
+		wantCat    string
+		wantDate   time.Time
+	}{
+		{
+			input:      "100水果 0507",
+			wantAmount: 100,
+			wantCat:    "水果",
+			wantDate:   time.Date(2026, 5, 7, 0, 0, 0, 0, now.Location()),
+		},
+		{
+			input:      "200 咖啡 20270507",
+			wantAmount: 200,
+			wantCat:    "咖啡",
+			wantDate:   time.Date(2027, 5, 7, 0, 0, 0, 0, now.Location()),
+		},
+	}
+
+	for _, tc := range cases {
+		got := ParseMessage(tc.input, now, nil)
+		if got.Amount != tc.wantAmount {
+			t.Fatalf("%q amount = %v, want %v", tc.input, got.Amount, tc.wantAmount)
+		}
+		if got.CategoryHint != tc.wantCat {
+			t.Fatalf("%q category = %q, want %q", tc.input, got.CategoryHint, tc.wantCat)
+		}
+		if !got.DateResolved || !got.Date.Equal(tc.wantDate) {
+			t.Fatalf("%q date = %v resolved=%v, want %v", tc.input, got.Date, got.DateResolved, tc.wantDate)
+		}
 	}
 }
 

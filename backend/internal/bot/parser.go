@@ -31,13 +31,14 @@ var (
 	amountRe = regexp.MustCompile(`[¥￥$]?(\d+(?:\.\d+)?)[元¥￥]?`)
 
 	// Date helpers. Order matters: more specific patterns first.
-	dateYestRe      = regexp.MustCompile(`昨天`)
-	dateBeforeYeRe  = regexp.MustCompile(`前天`)
-	dateTodayRe     = regexp.MustCompile(`今天`)
+	dateYestRe     = regexp.MustCompile(`昨天`)
+	dateBeforeYeRe = regexp.MustCompile(`前天`)
+	dateTodayRe    = regexp.MustCompile(`今天`)
 	// Intentionally omits '.' as a separator to avoid eating decimal amounts
 	// like "12.5". Users who want a short-hand date can use 8-23 / 8/23 / 8月23.
 	dateFullRe      = regexp.MustCompile(`(\d{1,2})[月\-/](\d{1,2})[号日]?`)
-	dateDayOnlyRe   = regexp.MustCompile(`(\d{1,2})[号日]`)                   // 23号 / 23日
+	dateDayOnlyRe   = regexp.MustCompile(`(\d{1,2})[号日]`)                       // 23号 / 23日
+	dateCompactRe   = regexp.MustCompile(`(^|[\s,，、])(\d{4}|\d{8})($|[\s,，、])`) // 0507 / 20270507
 	incomeMarkerRe  = regexp.MustCompile(`(?i)(^|\s|，|,)(收到|收入|退款|\+)(\s|，|,|$)`)
 	expenseMarkerRe = regexp.MustCompile(`(^|\s)-(\s|$)`) // leading minus
 
@@ -57,17 +58,17 @@ var (
 //
 // Pipeline:
 //
-//	1. Strip parenthetical notes (they never participate in keyword matching)
-//	2. Detect income markers ("收到 / 收入 / + / 退款")
-//	3. Ledger keywords are left to the caller (they need DB lookup); we only
-//	   produce a hint field with the first N words so the caller can try to
-//	   match them. But here we go one further: we don't try to extract the
-//	   ledger here - the caller does that and feeds back remaining text.
-//	   -> Actually the cleanest split: this function handles everything that
-//	      doesn't need DB. Ledger / category resolution happens after.
-//	4. Extract smart date
-//	5. Extract last-run amount
-//	6. Whatever is left becomes CategoryHint
+//  1. Strip parenthetical notes (they never participate in keyword matching)
+//  2. Detect income markers ("收到 / 收入 / + / 退款")
+//  3. Ledger keywords are left to the caller (they need DB lookup); we only
+//     produce a hint field with the first N words so the caller can try to
+//     match them. But here we go one further: we don't try to extract the
+//     ledger here - the caller does that and feeds back remaining text.
+//     -> Actually the cleanest split: this function handles everything that
+//     doesn't need DB. Ledger / category resolution happens after.
+//  4. Extract smart date
+//  5. Extract last-run amount
+//  6. Whatever is left becomes CategoryHint
 //
 // ledgerKeywords is an optional map (keyword -> "ledger_id") the caller passes
 // in so we can handle step 3 here. If empty, LedgerHint stays "".
@@ -179,8 +180,9 @@ func ParseMessage(raw string, now time.Time, ledgerKeywords map[string]string) P
 	return res
 }
 
-// extractDate looks for 昨天/前天/今天/M月D/D号 patterns, mutates ResolveTime into
-// res, and returns the text with the matched substring replaced by a space.
+// extractDate looks for 昨天/前天/今天/M月D/D号/紧凑数字日期 patterns, mutates
+// ResolveTime into res, and returns the text with the matched substring
+// replaced by a space.
 func extractDate(text string, now time.Time, res *ParseResult) string {
 	replace := func(s string, loc []int) string {
 		if loc == nil {
@@ -235,7 +237,57 @@ func extractDate(text string, now time.Time, res *ParseResult) string {
 		}
 	}
 
+	if m := dateCompactRe.FindStringSubmatchIndex(text); m != nil {
+		tokenStart, tokenEnd := m[4], m[5]
+		token := text[tokenStart:tokenEnd]
+		if candidate, ok := parseCompactDateToken(token, now); ok {
+			// Four-digit MMDD is intentionally conservative: only treat it as a
+			// date when another amount remains outside the token. This avoids
+			// parsing "咖啡 0507" as a dated entry with no amount.
+			if len(token) == 8 || hasAmountOutsideRange(text, tokenStart, tokenEnd) {
+				res.Date = candidate
+				res.DateResolved = true
+				return text[:tokenStart] + " " + text[tokenEnd:]
+			}
+		}
+	}
+
 	return text
+}
+
+func parseCompactDateToken(token string, now time.Time) (time.Time, bool) {
+	parseDate := func(year, month, day int, rollbackFuture bool) (time.Time, bool) {
+		if year < 1900 || year > 2199 || month < 1 || month > 12 || day < 1 || day > 31 {
+			return time.Time{}, false
+		}
+		candidate := time.Date(year, time.Month(month), day, 0, 0, 0, 0, now.Location())
+		if candidate.Year() != year || int(candidate.Month()) != month || candidate.Day() != day {
+			return time.Time{}, false
+		}
+		if rollbackFuture && candidate.After(now) {
+			candidate = candidate.AddDate(-1, 0, 0)
+		}
+		return candidate, true
+	}
+
+	switch len(token) {
+	case 8:
+		year, _ := strconv.Atoi(token[:4])
+		month, _ := strconv.Atoi(token[4:6])
+		day, _ := strconv.Atoi(token[6:8])
+		return parseDate(year, month, day, false)
+	case 4:
+		month, _ := strconv.Atoi(token[:2])
+		day, _ := strconv.Atoi(token[2:4])
+		return parseDate(now.Year(), month, day, true)
+	default:
+		return time.Time{}, false
+	}
+}
+
+func hasAmountOutsideRange(text string, start int, end int) bool {
+	masked := text[:start] + " " + text[end:]
+	return amountRe.FindStringIndex(masked) != nil
 }
 
 func startOfDay(t time.Time) time.Time {
