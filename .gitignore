@@ -24,6 +24,7 @@ pnpm-debug.log*
 *.dylib
 *.test
 *.out
+*_test.go
 /backend/sprouts-backend
 coverage.out
 
