@@ -77,6 +77,19 @@ func TestParseSplitArgsLegacyAllocation(t *testing.T) {
 	}
 }
 
+func TestParseSplitArgsGludedAmountAndKeyword(t *testing.T) {
+	got, msg := parseSplitArgs("1020住宿", map[string]models.Ledger{})
+	if msg != "" {
+		t.Fatalf("parseSplitArgs returned error: %s", msg)
+	}
+	if !got.haveTotal || got.total != 1020 {
+		t.Fatalf("total = %v/%v", got.total, got.haveTotal)
+	}
+	if got.freeText != "住宿" {
+		t.Fatalf("freeText = %q", got.freeText)
+	}
+}
+
 func TestSplitFreeTextParseKeepsCategoryKeywordInNote(t *testing.T) {
 	pr := ParseMessage("水果 TEST l:报销 100", timeNowForSplitTest(), nil)
 	if pr.CategoryHint != "水果 TEST" {

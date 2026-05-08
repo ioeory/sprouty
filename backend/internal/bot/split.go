@@ -39,6 +39,11 @@ const (
 // Group 4: per-allocation note (optional, ASCII or full-width parens)
 var allocTokenRe = regexp.MustCompile(`^(\d+(?:\.\d+)?)?@?([^\s()（）=＝]+?)(?:[=＝](\d+(?:\.\d+)?))?(?:[（(]([^)）]*)[)）])?$`)
 
+// leadingAmountWithTextRe captures tokens like `1020住宿` so split parsing can
+// still recover total amount even when users omit the whitespace between
+// amount and category hint.
+var leadingAmountWithTextRe = regexp.MustCompile(`^(\d+(?:\.\d+)?)([^\d\s].*)$`)
+
 // splitTriggerRe matches a leading `分账` / `split` / `aa` keyword on a plain
 // message, optionally followed by ASCII / full-width whitespace (or no
 // space at all). The remainder of the text becomes the /split argument
@@ -467,6 +472,18 @@ func parseSplitArgs(args string, subByName map[string]models.Ledger) (splitParse
 				out.total = v
 				out.haveTotal = true
 				continue
+			}
+		}
+
+		// Fallback: tolerate glued amount+text token, e.g. `1020住宿`.
+		if !out.haveTotal && !hasAt {
+			if mm := leadingAmountWithTextRe.FindStringSubmatch(tok); mm != nil {
+				if v, err := strconv.ParseFloat(mm[1], 64); err == nil && v > 0 {
+					out.total = v
+					out.haveTotal = true
+					freeWords = append(freeWords, strings.TrimSpace(mm[2]))
+					continue
+				}
 			}
 		}
 
