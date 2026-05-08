@@ -19,9 +19,12 @@ func TestMatchSplitTrigger(t *testing.T) {
 		{"分账　100 水果", "100 水果"},
 		{"split 100 fruit", "100 fruit"},
 		{"SPLIT100 fruit", "100 fruit"},
+		{"aa 100 fruit", "100 fruit"},
+		{"AA100 fruit", "100 fruit"},
 		{"100 分账 水果 TEST 0507", "100 水果 TEST 0507"},
 		{"100分账 水果 TEST", "100 水果 TEST"},
 		{"¥100 分账 水果", "100 水果"},
+		{"100 aa fruit 0507", "100 fruit 0507"},
 	}
 	for _, tc := range cases {
 		got, ok := matchSplitTrigger(tc.input)

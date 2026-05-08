@@ -100,7 +100,7 @@ func (t *TelegramAdapter) Stop() {
 func (t *TelegramAdapter) handleUpdate(update tgbotapi.Update) {
 	msg := update.Message
 	if msg.IsCommand() {
-		switch msg.Command() {
+		switch strings.ToLower(msg.Command()) {
 		case "start":
 			t.handleStart(msg)
 		case "bind":
@@ -121,7 +121,7 @@ func (t *TelegramAdapter) handleUpdate(update tgbotapi.Update) {
 			t.handleExpenseDetail(msg)
 		case "ledger":
 			t.handleLedger(msg)
-		case "split":
+		case "split", "aa":
 			t.handleSplit(msg)
 		default:
 			t.sendReply(msg.Chat.ID, "未知指令。发送 /start 查看帮助。\nUnknown command. Use /start for help.")
@@ -154,8 +154,8 @@ func (t *TelegramAdapter) handleStart(msg *tgbotapi.Message) {
 		"  /ledger <名称> —— 设为默认账本（不带参数查看当前）\n" +
 		"  /ledger 清除 或 /ledger clear —— 恢复为「第一个账本」\n\n" +
 		"分账（仅限家庭账本下拆到子账本）：\n" +
-		"  /split <总金额> <分类关键字> [备注] [<金额>@<子账本>(备注)] …\n" +
-		"  也可用 “分账 …” 直接触发（无需斜杠）。\n" +
+		"  /split（别名 /aa）<总金额> <分类关键字> [备注] [<金额>@<子账本>(备注)] …\n" +
+		"  也可用 “分账 … / split … / aa …” 直接触发（无需斜杠）。\n" +
 		"  未指定分账时自动平均分到所有子账本。示例：\n" +
 		"    /split 100 水果 TEST                       → 各子账本平均分摊\n" +
 		"    分账 100 水果 TEST                          → 同上\n" +
@@ -904,11 +904,11 @@ func prefixSideMaxLen(zh, en, hint string) int {
 // txType filters by category.type so "收入 8000" matches income categories only.
 // preferEn follows users.preferred_locale (en* → English keyword side first).
 //
-//	1. name = hint (exact)
-//	2. keyword_zh or keyword_en = hint (exact), locale-aware tie-break
-//	3. hint contains some keyword (substring), locale-aware then longer match
-//	4. keyword side contains hint (prefix-ish), locale-aware
-//	5. name contains hint OR hint contains name
+//  1. name = hint (exact)
+//  2. keyword_zh or keyword_en = hint (exact), locale-aware tie-break
+//  3. hint contains some keyword (substring), locale-aware then longer match
+//  4. keyword side contains hint (prefix-ish), locale-aware
+//  5. name contains hint OR hint contains name
 func (t *TelegramAdapter) resolveCategory(ledgerID uuid.UUID, hint string, txType string, preferEn bool) (models.Category, bool) {
 	hint = strings.ToLower(strings.TrimSpace(hint))
 

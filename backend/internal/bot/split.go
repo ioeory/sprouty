@@ -23,10 +23,10 @@ const (
 		"未指定分账时自动平均分到所有子账本，例：\n" +
 		"  /split 100 水果 TEST                       → 各子账本平均分摊\n" +
 		"  /split 100 水果 TEST 40@A1(给A1) 60@A2(给A2)\n" +
-		"也可写成 “分账 100 …”（无需斜杠）。"
+		"也可写成 “分账 100 … / aa 100 …”（无需斜杠）。"
 	splitUsageEn = "Usage: /split <total> <category> [note] [<amount>@<sub>(note)] …\n" +
 		"Without allocations, splits equally across every linked sub-ledger.\n" +
-		"You can also type: split 100 fruit TEST"
+		"You can also type: split 100 fruit TEST / aa 100 fruit TEST"
 )
 
 // allocToken matches the new allocation grammar:
@@ -39,16 +39,16 @@ const (
 // Group 4: per-allocation note (optional, ASCII or full-width parens)
 var allocTokenRe = regexp.MustCompile(`^(\d+(?:\.\d+)?)?@?([^\s()（）=＝]+?)(?:[=＝](\d+(?:\.\d+)?))?(?:[（(]([^)）]*)[)）])?$`)
 
-// splitTriggerRe matches a leading `分账` or `split` keyword on a plain
+// splitTriggerRe matches a leading `分账` / `split` / `aa` keyword on a plain
 // message, optionally followed by ASCII / full-width whitespace (or no
 // space at all). The remainder of the text becomes the /split argument
 // payload.
-var splitTriggerRe = regexp.MustCompile(`^(?i:split|分账)[\s　]*`)
+var splitTriggerRe = regexp.MustCompile(`^(?i:split|aa|分账)[\s　]*`)
 
-// amountFirstSplitTriggerRe matches chatty Chinese input where the user leads
-// with the amount, then says 分账/split: `100 分账 水果 TEST 0507`.
+// amountFirstSplitTriggerRe matches input where the user leads with amount,
+// then says 分账/split/aa: `100 分账 水果 TEST 0507`.
 // Group 1 is the numeric amount; group 2 is the remainder after the trigger.
-var amountFirstSplitTriggerRe = regexp.MustCompile(`^[¥￥$]?(\d+(?:\.\d+)?)[元¥￥]?[\s　]*(?i:split|分账)[\s　]*(.*)$`)
+var amountFirstSplitTriggerRe = regexp.MustCompile(`^[¥￥$]?(\d+(?:\.\d+)?)[元¥￥]?[\s　]*(?i:split|aa|分账)[\s　]*(.*)$`)
 
 // matchSplitTrigger returns the args portion if `text` is a plain-message
 // /split invocation, plus a flag indicating a match.
