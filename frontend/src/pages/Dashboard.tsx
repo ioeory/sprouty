@@ -824,22 +824,22 @@ export default function Dashboard() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="p-3 rounded-[var(--radius-md)] bg-[var(--color-surface-muted)]">
               <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider">{t('dashboard:todayExpense')}</p>
-              <p className="text-sm font-semibold font-tabular mt-1">¥{summary.compare.today_expense.toFixed(2)}</p>
+              <p className="text-sm font-semibold font-tabular mt-1">¥{(summary.compare.today_expense ?? 0).toFixed(2)}</p>
             </div>
             <div className="p-3 rounded-[var(--radius-md)] bg-[var(--color-surface-muted)]">
               <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider">{t('dashboard:yesterdayExpense')}</p>
-              <p className="text-sm font-semibold font-tabular mt-1">¥{summary.compare.yesterday_expense.toFixed(2)}</p>
+              <p className="text-sm font-semibold font-tabular mt-1">¥{(summary.compare.yesterday_expense ?? 0).toFixed(2)}</p>
             </div>
             <div className="p-3 rounded-[var(--radius-md)] bg-[var(--color-surface-muted)]">
               <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider">{t('dashboard:todayRemaining')}</p>
-              <p className={`text-sm font-semibold font-tabular mt-1 ${summary.compare.today_remaining < 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-brand)]'}`}>
-                ¥{summary.compare.today_remaining.toFixed(2)}
+              <p className={`text-sm font-semibold font-tabular mt-1 ${(summary.compare.today_remaining ?? 0) < 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-brand)]'}`}>
+                ¥{(summary.compare.today_remaining ?? 0).toFixed(2)}
               </p>
             </div>
             <div className="p-3 rounded-[var(--radius-md)] bg-[var(--color-surface-muted)]">
               {(() => {
                 const curr = summary.total_expense;
-                const prev = summary.compare.prev_period_expense;
+                const prev = summary.compare.prev_period_expense ?? 0;
                 const delta = prev > 0 ? ((curr - prev) / prev) * 100 : 0;
                 const up = delta >= 0;
                 return (
@@ -894,7 +894,7 @@ export default function Dashboard() {
                     {summary.compare.top_movers_up.map((m) => (
                       <li key={m.category_id} className="flex items-center justify-between text-xs">
                         <span className="text-[var(--color-text-muted)] truncate">{m.name}</span>
-                        <span className="font-tabular text-[var(--color-danger)] shrink-0">+{m.delta >= 0 ? '+' : ''}¥{Math.abs(m.delta).toFixed(0)}</span>
+                        <span className="font-tabular text-[var(--color-danger)] shrink-0">+¥{Math.abs(m.delta ?? 0).toFixed(0)}</span>
                       </li>
                     ))}
                   </ul>
@@ -907,7 +907,7 @@ export default function Dashboard() {
                     {summary.compare.top_movers_down.map((m) => (
                       <li key={m.category_id} className="flex items-center justify-between text-xs">
                         <span className="text-[var(--color-text-muted)] truncate">{m.name}</span>
-                        <span className="font-tabular text-[var(--color-success)] shrink-0">¥{m.delta.toFixed(0)}</span>
+                        <span className="font-tabular text-[var(--color-success)] shrink-0">¥{(m.delta ?? 0).toFixed(0)}</span>
                       </li>
                     ))}
                   </ul>
