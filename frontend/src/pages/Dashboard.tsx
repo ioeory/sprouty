@@ -99,9 +99,12 @@ interface DailyStat {
 interface TopMoverItem {
   category_id: string;
   name: string;
-  prev: number;
-  curr: number;
-  delta: number;
+  name_zh?: string;
+  name_en?: string;
+  amount: number;
+  prev_amount: number;
+  delta_pct: number;
+  color?: string;
 }
 
 interface CompareData {
@@ -840,8 +843,8 @@ export default function Dashboard() {
               {(() => {
                 const curr = summary.total_expense;
                 const prev = summary.compare.prev_period_expense ?? 0;
-                const delta = prev > 0 ? ((curr - prev) / prev) * 100 : 0;
-                const up = delta >= 0;
+                const delta = prev > 0 ? ((curr - prev) / prev) * 100 : curr > 0 ? 100 : 0;
+                const up = delta > 0;
                 return (
                   <>
                     <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider">{t('dashboard:prevPeriod')}</p>
@@ -894,7 +897,7 @@ export default function Dashboard() {
                     {summary.compare.top_movers_up.map((m) => (
                       <li key={m.category_id} className="flex items-center justify-between text-xs">
                         <span className="text-[var(--color-text-muted)] truncate">{m.name}</span>
-                        <span className="font-tabular text-[var(--color-danger)] shrink-0">+¥{Math.abs(m.delta ?? 0).toFixed(0)}</span>
+                        <span className="font-tabular text-[var(--color-danger)] shrink-0">+¥{Math.abs((m.amount ?? 0) - (m.prev_amount ?? 0)).toFixed(0)} <span className="opacity-60">{(m.delta_pct ?? 0).toFixed(0)}%</span></span>
                       </li>
                     ))}
                   </ul>
@@ -907,7 +910,7 @@ export default function Dashboard() {
                     {summary.compare.top_movers_down.map((m) => (
                       <li key={m.category_id} className="flex items-center justify-between text-xs">
                         <span className="text-[var(--color-text-muted)] truncate">{m.name}</span>
-                        <span className="font-tabular text-[var(--color-success)] shrink-0">¥{(m.delta ?? 0).toFixed(0)}</span>
+                        <span className="font-tabular text-[var(--color-success)] shrink-0">-¥{Math.abs((m.amount ?? 0) - (m.prev_amount ?? 0)).toFixed(0)} <span className="opacity-60">{(m.delta_pct ?? 0).toFixed(0)}%</span></span>
                       </li>
                     ))}
                   </ul>
