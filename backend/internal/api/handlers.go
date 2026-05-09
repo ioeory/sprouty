@@ -1257,6 +1257,7 @@ func GetDashboardSummary(c *gin.Context) {
 	}
 
 	// By category (group by id so bilingual names don’t split one category)
+	appLoc := Locale(c)
 	catStats := []PieStat{}
 	{
 		type catPieRaw struct {
@@ -1276,7 +1277,6 @@ func GetDashboardSummary(c *gin.Context) {
 		if err := q.Group("categories.id, categories.name_zh, categories.name_en").Order("value DESC").Scan(&raw).Error; err != nil {
 			log.Printf("Error fetching category stats: %v", err)
 		}
-		appLoc := Locale(c)
 		for _, row := range raw {
 			catStats = append(catStats, PieStat{
 				Name:       service.PickCategoryDisplayName(appLoc, row.NameZh, row.NameEn),
@@ -1425,17 +1425,21 @@ func GetDashboardSummary(c *gin.Context) {
 			}
 			type prevCatRow struct {
 				CategoryID uuid.UUID `gorm:"column:category_id"`
+				NameZh     string    `gorm:"column:name_zh"`
+				NameEn     string    `gorm:"column:name_en"`
+				Color      string    `gorm:"column:color"`
 				Value      float64   `gorm:"column:value"`
 			}
 			var prevCatRows []prevCatRow
 			qp := service.DB.Model(&models.Transaction{}).
-				Select("category_id, SUM(amount) as value").
-				Where("ledger_id IN ? AND type = 'expense' AND date >= ? AND date <= ?", ledgerIDs, prevFirst, prevLast)
+				Select("transactions.category_id as category_id, MAX(categories.name_zh) as name_zh, MAX(categories.name_en) as name_en, MAX(categories.color) as color, SUM(transactions.amount) as value").
+				Joins("LEFT JOIN categories ON categories.id = transactions.category_id").
+				Where("transactions.ledger_id IN ? AND transactions.type = 'expense' AND transactions.date >= ? AND transactions.date <= ?", ledgerIDs, prevFirst, prevLast)
 			qp = applyTagExclusion(qp, "")
-			qp.Group("category_id").Scan(&prevCatRows)
-			prevMap := make(map[string]float64, len(prevCatRows))
+			qp.Group("transactions.category_id").Scan(&prevCatRows)
+			prevMap := make(map[string]prevCatRow, len(prevCatRows))
 			for _, r := range prevCatRows {
-				prevMap[r.CategoryID.String()] = r.Value
+				prevMap[r.CategoryID.String()] = r
 			}
 			type moverEntry struct {
 				m        TopMover
@@ -1445,7 +1449,10 @@ func GetDashboardSummary(c *gin.Context) {
 			seen := map[string]bool{}
 			for _, cs := range catStats {
 				seen[cs.CategoryID] = true
-				prev := prevMap[cs.CategoryID]
+				prev := 0.0
+				if row, ok := prevMap[cs.CategoryID]; ok {
+					prev = row.Value
+				}
 				var dp float64
 				if prev > 0 {
 					dp = (cs.Value - prev) / prev * 100
@@ -1459,8 +1466,13 @@ func GetDashboardSummary(c *gin.Context) {
 			}
 			for catIDStr, prev := range prevMap {
 				if !seen[catIDStr] {
+					name := service.PickCategoryDisplayName(appLoc, prev.NameZh, prev.NameEn)
+					if name == "" {
+						name = catIDStr
+					}
 					movers = append(movers, moverEntry{m: TopMover{
-						CategoryID: catIDStr, Amount: 0, PrevAmount: prev, DeltaPct: -100,
+						CategoryID: catIDStr, Name: name, NameZh: prev.NameZh, NameEn: prev.NameEn,
+						Amount: 0, PrevAmount: prev.Value, DeltaPct: -100, Color: prev.Color,
 					}, deltaPct: -100})
 				}
 			}

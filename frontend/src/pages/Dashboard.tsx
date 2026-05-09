@@ -896,7 +896,7 @@ export default function Dashboard() {
                   <ul className="space-y-1.5">
                     {summary.compare.top_movers_up.map((m) => (
                       <li key={m.category_id} className="flex items-center justify-between text-xs">
-                        <span className="text-[var(--color-text-muted)] truncate">{m.name}</span>
+                        <span className="text-[var(--color-text-muted)] truncate">{m.name || pickCategoryDisplayName(i18n.language, m.name_zh, m.name_en) || m.category_id}</span>
                         <span className="font-tabular text-[var(--color-danger)] shrink-0">+¥{Math.abs((m.amount ?? 0) - (m.prev_amount ?? 0)).toFixed(0)} <span className="opacity-60">{(m.delta_pct ?? 0).toFixed(0)}%</span></span>
                       </li>
                     ))}
@@ -909,7 +909,7 @@ export default function Dashboard() {
                   <ul className="space-y-1.5">
                     {summary.compare.top_movers_down.map((m) => (
                       <li key={m.category_id} className="flex items-center justify-between text-xs">
-                        <span className="text-[var(--color-text-muted)] truncate">{m.name}</span>
+                        <span className="text-[var(--color-text-muted)] truncate">{m.name || pickCategoryDisplayName(i18n.language, m.name_zh, m.name_en) || m.category_id}</span>
                         <span className="font-tabular text-[var(--color-success)] shrink-0">-¥{Math.abs((m.amount ?? 0) - (m.prev_amount ?? 0)).toFixed(0)} <span className="opacity-60">{(m.delta_pct ?? 0).toFixed(0)}%</span></span>
                       </li>
                     ))}
