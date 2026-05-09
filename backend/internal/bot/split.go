@@ -71,25 +71,13 @@ func matchSplitTrigger(text string) (args string, ok bool) {
 // handleSplit implements the /split command. It is a thin shell around
 // runSplit so the same logic can be reused by the plain-message trigger.
 func (t *TelegramAdapter) handleSplit(msg *tgbotapi.Message) {
-	conn, ok := t.requireBinding(msg)
-	if !ok {
+	conn, err := t.requireBinding(msg)
+	if err != nil {
 		return
 	}
 	preferEn := t.userPreferEn(conn.UserID)
 	args := strings.TrimSpace(msg.CommandArguments())
 	t.sendReply(msg.Chat.ID, t.runSplit(conn, args, preferEn, ""))
-}
-
-// requireBinding returns the chat's binding row, replying with the standard
-// "not bound" message and false when missing. Centralised so the split path
-// and any future commands can reuse it.
-func (t *TelegramAdapter) requireBinding(msg *tgbotapi.Message) (models.UserConnection, bool) {
-	var conn models.UserConnection
-	if err := t.db.Where("platform = ? AND external_id = ?", "telegram", strconv.FormatInt(msg.Chat.ID, 10)).First(&conn).Error; err != nil {
-		t.sendReply(msg.Chat.ID, "账号未绑定，请先 /bind [PIN]。")
-		return conn, false
-	}
-	return conn, true
 }
 
 // runSplit performs validation, parsing, allocation, and DB writes for a
@@ -303,6 +291,18 @@ func (t *TelegramAdapter) runSplit(conn models.UserConnection, args string, pref
 			lines = append(lines, fmt.Sprintf("(default ledger %s auto-routed to family %s)", autoFromPersonal, src.Name))
 		} else {
 			lines = append(lines, fmt.Sprintf("（默认账本是 %s，已自动切换到家庭账本 %s）", autoFromPersonal, src.Name))
+		}
+	}
+	// surface short IDs so users can /del them
+	if len(children) > 0 {
+		ids := make([]string, 0, len(children))
+		for _, ch := range children {
+			ids = append(ids, "#"+ch.ID.String()[:6])
+		}
+		if preferEn {
+			lines = append(lines, "IDs: "+strings.Join(ids, " ")+" — /del <id> group to remove")
+		} else {
+			lines = append(lines, "短ID："+strings.Join(ids, " ")+" — /del <id> group 可删整组")
 		}
 	}
 	return strings.Join(lines, "\n")

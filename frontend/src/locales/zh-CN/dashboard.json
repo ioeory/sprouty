@@ -87,5 +87,14 @@
   "categoryDrillEmpty": "暂无按账本拆分的数据",
   "categoryDrillColLedger": "账本",
   "categoryDrillColAmount": "金额",
-  "categoryDrillColCount": "笔数"
+  "categoryDrillColCount": "笔数",
+  "compareToggle": "对比分析",
+  "compareTitle": "周期对比",
+  "todayExpense": "今日支出",
+  "yesterdayExpense": "昨日支出",
+  "todayRemaining": "今日可用余额",
+  "prevPeriod": "上月支出",
+  "dailyTrend": "本月每日支出趋势",
+  "topMoversUp": "增长最多的分类",
+  "topMoversDown": "减少最多的分类"
 }

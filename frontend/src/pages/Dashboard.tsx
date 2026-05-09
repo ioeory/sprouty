@@ -20,7 +20,17 @@ import {
   ChevronRight,
   Infinity as InfinityIcon,
   Book,
+  BarChart2,
+  TrendingUp,
+  TrendingDown as TrendingDownIcon,
 } from 'lucide-react';
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  Tooltip as RechartsTooltip,
+  XAxis,
+} from 'recharts';
 import { cn } from '../components/ui';
 import api from '../api/client';
 import SpendingChart from '../components/SpendingChart';
@@ -77,6 +87,32 @@ interface Summary {
   includes_linked_personal?: boolean;
   linked_personal_in_cluster?: number;
   is_current_month?: boolean;
+  compare?: CompareData | null;
+}
+
+interface DailyStat {
+  date: string;
+  expense: number;
+  income: number;
+}
+
+interface TopMoverItem {
+  category_id: string;
+  name: string;
+  prev: number;
+  curr: number;
+  delta: number;
+}
+
+interface CompareData {
+  today_expense: number;
+  yesterday_expense: number;
+  today_remaining: number;
+  prev_period_expense: number;
+  yoy_expense: number;
+  daily_series: DailyStat[];
+  top_movers_up: TopMoverItem[];
+  top_movers_down: TopMoverItem[];
 }
 
 type Scope = 'current' | 'all';
@@ -234,6 +270,8 @@ export default function Dashboard() {
   /** Flat tags from cluster fetch (includes ledger_id for merge + tooltips). */
   const [tagFlat, setTagFlat] = useState<TagWithLedger[]>([]);
 
+  const [showCompare, setShowCompare] = useState(() => localStorage.getItem('dashboard_show_compare') === 'true');
+
   const [categoryDrillOpen, setCategoryDrillOpen] = useState(false);
   const [categoryDrillTitle, setCategoryDrillTitle] = useState('');
   const [categoryDrillLoading, setCategoryDrillLoading] = useState(false);
@@ -293,6 +331,9 @@ export default function Dashboard() {
         sumParams.set('scope', 'all');
       } else {
         sumParams.set('ledger_id', ledger.id);
+      }
+      if (showCompare && period === 'month' && scope === 'current') {
+        sumParams.set('compare', 'true');
       }
       if (bypassTagFilter) {
         sumParams.set('bypass_tag_filter', 'true');
@@ -355,6 +396,7 @@ export default function Dashboard() {
     scope,
     groupBy,
     period,
+    showCompare,
     bypassTagFilter,
     manualExcludeTagIds.join(','),
     selectedYearMonth,
@@ -591,6 +633,25 @@ export default function Dashboard() {
             value={groupBy}
             onChange={setGroupBy}
           />
+          {period === 'month' && scope === 'current' && (
+            <button
+              type="button"
+              onClick={() => {
+                const next = !showCompare;
+                setShowCompare(next);
+                localStorage.setItem('dashboard_show_compare', String(next));
+              }}
+              className={cn(
+                'inline-flex items-center gap-1.5 h-8 px-2.5 rounded-[var(--radius-md)] border text-xs font-medium transition-colors',
+                showCompare
+                  ? 'border-[var(--color-brand)] bg-[var(--color-brand-soft)] text-[var(--color-brand)]'
+                  : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)]',
+              )}
+            >
+              <BarChart2 size={14} />
+              {t('dashboard:compareToggle')}
+            </button>
+          )}
           {scope === 'current' && period === 'month' && (
             <Button variant="outline" size="sm" leftIcon={<Pencil size={14} />} onClick={() => setShowBudget(true)}>
               {t('dashboard:editBudget')}
@@ -751,6 +812,111 @@ export default function Dashboard() {
           </div>
         </Card>
       </div>
+
+      {/* Compare section */}
+      {showCompare && summary?.compare && (
+        <Card padding="lg" className="space-y-4">
+          <CardHeader
+            icon={<BarChart2 size={16} />}
+            title={t('dashboard:compareTitle')}
+          />
+          {/* Today vs Yesterday row */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="p-3 rounded-[var(--radius-md)] bg-[var(--color-surface-muted)]">
+              <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider">{t('dashboard:todayExpense')}</p>
+              <p className="text-sm font-semibold font-tabular mt-1">¥{summary.compare.today_expense.toFixed(2)}</p>
+            </div>
+            <div className="p-3 rounded-[var(--radius-md)] bg-[var(--color-surface-muted)]">
+              <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider">{t('dashboard:yesterdayExpense')}</p>
+              <p className="text-sm font-semibold font-tabular mt-1">¥{summary.compare.yesterday_expense.toFixed(2)}</p>
+            </div>
+            <div className="p-3 rounded-[var(--radius-md)] bg-[var(--color-surface-muted)]">
+              <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider">{t('dashboard:todayRemaining')}</p>
+              <p className={`text-sm font-semibold font-tabular mt-1 ${summary.compare.today_remaining < 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-brand)]'}`}>
+                ¥{summary.compare.today_remaining.toFixed(2)}
+              </p>
+            </div>
+            <div className="p-3 rounded-[var(--radius-md)] bg-[var(--color-surface-muted)]">
+              {(() => {
+                const curr = summary.total_expense;
+                const prev = summary.compare.prev_period_expense;
+                const delta = prev > 0 ? ((curr - prev) / prev) * 100 : 0;
+                const up = delta >= 0;
+                return (
+                  <>
+                    <p className="text-[11px] text-[var(--color-text-subtle)] uppercase tracking-wider">{t('dashboard:prevPeriod')}</p>
+                    <p className="text-sm font-semibold font-tabular mt-1 flex items-center gap-1">
+                      ¥{prev.toFixed(2)}
+                      {prev > 0 && (
+                        <span className={`text-[10px] ${up ? 'text-[var(--color-danger)]' : 'text-[var(--color-success)]'}`}>
+                          {up ? <TrendingUp size={10} /> : <TrendingDownIcon size={10} />}
+                          {up ? '+' : ''}{delta.toFixed(1)}%
+                        </span>
+                      )}
+                    </p>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+
+          {/* Daily sparkline */}
+          {summary.compare.daily_series?.length > 0 && (
+            <div>
+              <p className="text-xs text-[var(--color-text-muted)] mb-2">{t('dashboard:dailyTrend')}</p>
+              <ResponsiveContainer width="100%" height={80}>
+                <AreaChart data={summary.compare.daily_series} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+                  <defs>
+                    <linearGradient id="cmpGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--color-brand)" stopOpacity={0.35} />
+                      <stop offset="95%" stopColor="var(--color-brand)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="date" hide />
+                  <RechartsTooltip
+                    contentStyle={{ fontSize: 11, background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+                    formatter={(v: number) => [`¥${v.toFixed(2)}`]}
+                    labelFormatter={(l) => l}
+                  />
+                  <Area type="monotone" dataKey="expense" stroke="var(--color-brand)" fill="url(#cmpGrad)" strokeWidth={1.5} dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Top movers */}
+          {(summary.compare.top_movers_up?.length > 0 || summary.compare.top_movers_down?.length > 0) && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {summary.compare.top_movers_up?.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-[var(--color-danger)] mb-2 flex items-center gap-1"><TrendingUp size={12} /> {t('dashboard:topMoversUp')}</p>
+                  <ul className="space-y-1.5">
+                    {summary.compare.top_movers_up.map((m) => (
+                      <li key={m.category_id} className="flex items-center justify-between text-xs">
+                        <span className="text-[var(--color-text-muted)] truncate">{m.name}</span>
+                        <span className="font-tabular text-[var(--color-danger)] shrink-0">+{m.delta >= 0 ? '+' : ''}¥{Math.abs(m.delta).toFixed(0)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {summary.compare.top_movers_down?.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-[var(--color-success)] mb-2 flex items-center gap-1"><TrendingDownIcon size={12} /> {t('dashboard:topMoversDown')}</p>
+                  <ul className="space-y-1.5">
+                    {summary.compare.top_movers_down.map((m) => (
+                      <li key={m.category_id} className="flex items-center justify-between text-xs">
+                        <span className="text-[var(--color-text-muted)] truncate">{m.name}</span>
+                        <span className="font-tabular text-[var(--color-success)] shrink-0">¥{m.delta.toFixed(0)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* Tag filter (always shown so users can discover and manage
           exclusions, even before any tag exists). */}

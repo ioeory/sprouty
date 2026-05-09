@@ -123,6 +123,14 @@ func (t *TelegramAdapter) handleUpdate(update tgbotapi.Update) {
 			t.handleLedger(msg)
 		case "split", "aa":
 			t.handleSplit(msg)
+		case "list":
+			t.handleList(msg)
+		case "del":
+			t.handleDel(msg)
+		case "find":
+			t.handleFind(msg)
+		case "undo":
+			t.handleUndo(msg)
 		default:
 			t.sendReply(msg.Chat.ID, "未知指令。发送 /start 查看帮助。\nUnknown command. Use /start for help.")
 		}
@@ -173,8 +181,14 @@ func (t *TelegramAdapter) handleStart(msg *tgbotapi.Message) {
 		"  /days 14 — 最近 N 天支出（1–366）\n" +
 		"  /spent — 同 /days，默认 7 天\n" +
 		"  /detail — 最近支出明细（默认 10 条，可 /detail 20）\n\n" +
+		"流水管理（每条记账回执含 #shortId）：\n" +
+		"  /list [N] — 最近 N 条流水（默认 10）\n" +
+		"  /find <关键词> — 最近 30 天按备注/分类搜索\n" +
+		"  /del <短ID> [single|group] — 删除；个人账本默认删单条，家庭账本默认删整组\n" +
+		"  /undo — 撤销最近 3 小时内通过 Bot 记的最新一条\n\n" +
 		"Installment (equal split): /install <months> <total> <category…> — alias /fenqi\n\n" +
-		"Queries: /budget, /today, /week, /days N, /spent [N], /detail [N]"
+		"Queries: /budget, /today, /week, /days N, /spent [N], /detail [N]\n" +
+		"Records: /list [N], /find <kw>, /del <id> [single|group], /undo"
 	t.sendReply(msg.Chat.ID, helpText)
 }
 
@@ -571,6 +585,12 @@ func (t *TelegramAdapter) handleInstallment(msg *tgbotapi.Message) {
 	if len(createdTagNames) > 0 {
 		lines = append(lines, "🆕 新建标签："+strings.Join(createdTagNames, ", "))
 	}
+	// show first installment short ID for /del
+	var firstTx models.Transaction
+	if err := t.db.Where("installment_group_id = ?", gid).
+		Order("date ASC, created_at ASC").First(&firstTx).Error; err == nil {
+		lines = append(lines, "#"+firstTx.ID.String()[:6]+" (首期) · /del <id> 可删单期")
+	}
 	t.sendReply(msg.Chat.ID, strings.Join(lines, "\n"))
 }
 
@@ -741,6 +761,7 @@ func (t *TelegramAdapter) handlePlainMessage(msg *tgbotapi.Message) {
 		lines = append(lines, "🆕 新建标签："+strings.Join(createdTags, ", ")+
 			"（可在 Web 端「分类 → 标签」卡片里改名/设为默认排除）")
 	}
+	lines = append(lines, "#"+transaction.ID.String()[:6]+" · /del "+transaction.ID.String()[:6]+" 可删除")
 	t.sendReply(msg.Chat.ID, strings.Join(lines, "\n"))
 }
 

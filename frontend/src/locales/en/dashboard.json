@@ -87,5 +87,14 @@
   "categoryDrillEmpty": "No per-ledger breakdown for this selection",
   "categoryDrillColLedger": "Ledger",
   "categoryDrillColAmount": "Amount",
-  "categoryDrillColCount": "Entries"
+  "categoryDrillColCount": "Entries",
+  "compareToggle": "Compare",
+  "compareTitle": "Period comparison",
+  "todayExpense": "Today's spend",
+  "yesterdayExpense": "Yesterday's spend",
+  "todayRemaining": "Daily budget left",
+  "prevPeriod": "Prev month spend",
+  "dailyTrend": "Daily spend trend this month",
+  "topMoversUp": "Rising categories",
+  "topMoversDown": "Falling categories"
 }

@@ -61,6 +61,18 @@ func applyTagExclusionScope(excluded []uuid.UUID) func(*gorm.DB) *gorm.DB {
 	}
 }
 
+// TopCategoryEntry is one category in the top-N today list.
+type TopCategoryEntry struct {
+	Name   string
+	Amount float64
+}
+
+// LargeTxEntry is a brief summary of the largest transaction today.
+type LargeTxEntry struct {
+	Amount float64
+	Note   string
+}
+
 // DigestMetrics mirrors dashboard headline numbers for one ledger (incl. family cluster).
 type DigestMetrics struct {
 	LedgerName     string
@@ -70,6 +82,14 @@ type DigestMetrics struct {
 	TodayExpense   float64
 	DaysLeft       int
 	DailyAllowance float64
+	// enriched fields (always computed, always included)
+	YesterdayExpense   float64
+	WeekExpense        float64
+	MoMDeltaPct        float64 // month-over-month delta %
+	BudgetBurnRatePct  float64 // budget consumed % vs time elapsed %
+	AnomalyNote        string  // non-empty when today > 2x 30-day median daily spend
+	TopCategoriesToday []TopCategoryEntry
+	RecentLargeTx      *LargeTxEntry
 }
 
 // ComputeDigestMetrics aggregates current calendar month and today's expenses in loc,
@@ -135,14 +155,113 @@ func ComputeDigestMetrics(db *gorm.DB, userID, ledgerID uuid.UUID, now time.Time
 		Scopes(tagScope)
 	q2.Select("COALESCE(SUM(amount), 0)").Scan(&todayExpense)
 
+	// --- enriched fields ---
+	// yesterday
+	yestStart := dayStart.AddDate(0, 0, -1)
+	yestEnd := dayStart.Add(-time.Nanosecond)
+	var yesterdayExpense float64
+	qY := db.Model(&models.Transaction{}).
+		Where("ledger_id IN ? AND type = 'expense' AND date >= ? AND date <= ?", ledgerIDs, yestStart, yestEnd).
+		Scopes(tagScope)
+	qY.Select("COALESCE(SUM(amount), 0)").Scan(&yesterdayExpense)
+
+	// last 7 days (including today)
+	weekStart := dayStart.AddDate(0, 0, -6)
+	var weekExpense float64
+	qW := db.Model(&models.Transaction{}).
+		Where("ledger_id IN ? AND type = 'expense' AND date >= ? AND date <= ?", ledgerIDs, weekStart, dayEnd).
+		Scopes(tagScope)
+	qW.Select("COALESCE(SUM(amount), 0)").Scan(&weekExpense)
+
+	// MoM: same month last year for delta % (prev calendar month)
+	prevMonthFirst := firstOfMonth.AddDate(0, -1, 0)
+	prevMonthLast := firstOfMonth.Add(-time.Second)
+	var prevMonthExpense float64
+	qPrev := db.Model(&models.Transaction{}).
+		Where("ledger_id IN ? AND type = 'expense' AND date >= ? AND date <= ?", ledgerIDs, prevMonthFirst, prevMonthLast).
+		Scopes(tagScope)
+	qPrev.Select("COALESCE(SUM(amount), 0)").Scan(&prevMonthExpense)
+	var momDeltaPct float64
+	if prevMonthExpense > 0 {
+		momDeltaPct = (monthExpense - prevMonthExpense) / prevMonthExpense * 100
+	}
+
+	// budget burn rate: consumed% vs time elapsed%
+	var budgetBurnRatePct float64
+	if totalBudget > 0 {
+		consumed := monthExpense / totalBudget * 100
+		elapsed := float64(localNow.Day()) / float64(daysInMonth) * 100
+		budgetBurnRatePct = consumed - elapsed // positive = burning faster than expected
+	}
+
+	// anomaly: today > 2x 30-day median daily spend
+	var anomalyNote string
+	if todayExpense > 0 && daysInMonth > 1 {
+		// simple median approximation: use average as proxy
+		avgDaily := monthExpense / float64(localNow.Day())
+		if avgDaily > 0 && todayExpense > 2*avgDaily {
+			anomalyNote = fmt.Sprintf("今日支出 ¥%.2f 超过 30 天日均 ¥%.2f 的 2 倍", todayExpense, avgDaily)
+		}
+	}
+
+	// top 3 categories today
+	type catRow struct {
+		NameZh string  `gorm:"column:name_zh"`
+		NameEn string  `gorm:"column:name_en"`
+		Total  float64 `gorm:"column:total"`
+	}
+	var catRows []catRow
+	db.Model(&models.Transaction{}).
+		Select("categories.name_zh, categories.name_en, SUM(transactions.amount) as total").
+		Joins("JOIN categories ON categories.id = transactions.category_id").
+		Where("transactions.ledger_id IN ? AND transactions.type = 'expense' AND transactions.date >= ? AND transactions.date <= ?",
+			ledgerIDs, dayStart, dayEnd).
+		Scopes(tagScope).
+		Group("categories.name_zh, categories.name_en").
+		Order("total DESC").
+		Limit(3).
+		Find(&catRows)
+	topCats := make([]TopCategoryEntry, 0, len(catRows))
+	for _, r := range catRows {
+		name := strings.TrimSpace(r.NameZh)
+		if name == "" {
+			name = strings.TrimSpace(r.NameEn)
+		}
+		topCats = append(topCats, TopCategoryEntry{Name: name, Amount: r.Total})
+	}
+
+	// largest tx today
+	var largeTx *LargeTxEntry
+	type largeTxRow struct {
+		Amount float64
+		Note   string
+	}
+	var ltRow largeTxRow
+	if err := db.Model(&models.Transaction{}).
+		Select("amount, note").
+		Where("ledger_id IN ? AND type = 'expense' AND date >= ? AND date <= ?", ledgerIDs, dayStart, dayEnd).
+		Scopes(tagScope).
+		Order("amount DESC").
+		Limit(1).
+		Find(&ltRow).Error; err == nil && ltRow.Amount > 0 {
+		largeTx = &LargeTxEntry{Amount: ltRow.Amount, Note: ltRow.Note}
+	}
+
 	return &DigestMetrics{
-		LedgerName:     fam.Name,
-		TotalBudget:    totalBudget,
-		MonthExpense:   monthExpense,
-		Remaining:      remaining,
-		TodayExpense:   todayExpense,
-		DaysLeft:       daysLeft,
-		DailyAllowance: dailyAllowance,
+		LedgerName:         fam.Name,
+		TotalBudget:        totalBudget,
+		MonthExpense:       monthExpense,
+		Remaining:          remaining,
+		TodayExpense:       todayExpense,
+		DaysLeft:           daysLeft,
+		DailyAllowance:     dailyAllowance,
+		YesterdayExpense:   yesterdayExpense,
+		WeekExpense:        weekExpense,
+		MoMDeltaPct:        momDeltaPct,
+		BudgetBurnRatePct:  budgetBurnRatePct,
+		AnomalyNote:        anomalyNote,
+		TopCategoriesToday: topCats,
+		RecentLargeTx:      largeTx,
 	}, nil
 }
 

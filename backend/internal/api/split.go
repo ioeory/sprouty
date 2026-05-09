@@ -703,3 +703,57 @@ func IsSplitBadRequest(err error) bool {
 	}
 	return false
 }
+
+// BotDeleteTransaction deletes a transaction on behalf of a bot user.
+// If the transaction belongs to a split group, the deletion mode controls behaviour:
+//   - "group"  → delete the whole split group and all its children (default when
+//     the transaction's ledger type is "family").
+//   - "single" → delete only this transaction and recalculate the group's total
+//     (default when the ledger type is "personal").
+//   - ""       → auto-select based on ledger type as described above.
+//
+// Returns (rowsDeleted, error). On ErrReadOnlyLedgerMember the caller should surface
+// a human-readable "read-only" message.
+func BotDeleteTransaction(db *gorm.DB, userID, txID uuid.UUID, delMode string) (int, error) {
+	var tx models.Transaction
+	if err := db.First(&tx, "id = ?", txID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, fmt.Errorf("not found")
+		}
+		return 0, err
+	}
+	if !service.UserCanWriteLedger(db, userID, tx.LedgerID) {
+		return 0, ErrReadOnlyLedgerMember
+	}
+
+	if tx.SplitGroupID != nil {
+		mode := delMode
+		if mode == "" {
+			var ledger models.Ledger
+			if err := db.First(&ledger, "id = ?", tx.LedgerID).Error; err == nil && ledger.Type == "family" {
+				mode = "group"
+			} else {
+				mode = "single"
+			}
+		}
+		if mode == "group" {
+			groupID := *tx.SplitGroupID
+			var n int64
+			db.Model(&models.Transaction{}).Where("split_group_id = ?", groupID).Count(&n)
+			if err := db.Where("split_group_id = ?", groupID).Delete(&models.Transaction{}).Error; err != nil {
+				return 0, err
+			}
+			db.Delete(&models.SplitGroup{}, "id = ?", groupID)
+			return int(n), nil
+		}
+	}
+
+	// single-tx deletion (also covers non-split transactions)
+	if err := db.Delete(&models.Transaction{}, "id = ?", txID).Error; err != nil {
+		return 0, err
+	}
+	if tx.SplitGroupID != nil {
+		recalcOrDeleteEmptySplitGroup(db, *tx.SplitGroupID)
+	}
+	return 1, nil
+}

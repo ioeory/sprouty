@@ -23,6 +23,9 @@ type PushNotificationSetting struct {
 
 	IncludeBudgetRemaining bool   `gorm:"default:true" json:"include_budget_remaining"`
 	IncludeTodayExpense    bool   `gorm:"default:true" json:"include_today_expense"`
+	IncludeComparison      bool   `gorm:"default:true" json:"include_comparison"`
+	IncludeTopCategories   bool   `gorm:"default:true" json:"include_top_categories"`
+	IncludeAnomaly         bool   `gorm:"default:true" json:"include_anomaly"`
 	CustomPrefix           string `gorm:"size:240" json:"custom_prefix"`
 
 	LastSentLocalDate string `gorm:"size:10" json:"last_sent_local_date"` // YYYY-MM-DD in user TZ

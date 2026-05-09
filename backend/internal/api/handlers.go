@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"sprouts-self/backend/internal/models"
 	"sprouts-self/backend/internal/service"
 	"strconv"
@@ -1328,6 +1329,166 @@ func GetDashboardSummary(c *gin.Context) {
 		}
 	}
 
+	// --- Compare metrics (opt-in: ?compare=true) ---
+	type DailyStat struct {
+		Date    string  `json:"date"`
+		Expense float64 `json:"expense"`
+		Income  float64 `json:"income"`
+	}
+	type TopMover struct {
+		CategoryID string  `json:"category_id"`
+		Name       string  `json:"name"`
+		NameZh     string  `json:"name_zh,omitempty"`
+		NameEn     string  `json:"name_en,omitempty"`
+		Amount     float64 `json:"amount"`
+		PrevAmount float64 `json:"prev_amount"`
+		DeltaPct   float64 `json:"delta_pct"`
+		Color      string  `json:"color"`
+	}
+	compareMode := c.Query("compare") == "true"
+	var comparePayload interface{}
+	if compareMode && len(ledgerIDs) > 0 {
+		todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+		todayEnd := todayStart.AddDate(0, 0, 1).Add(-time.Nanosecond)
+		yestStart := todayStart.AddDate(0, 0, -1)
+		yestEnd := todayStart.Add(-time.Nanosecond)
+
+		var todayExpense, yesterdayExpense float64
+		qT := service.DB.Model(&models.Transaction{}).
+			Where("ledger_id IN ? AND type = 'expense' AND date >= ? AND date <= ?", ledgerIDs, todayStart, todayEnd)
+		qT = applyTagExclusion(qT, "")
+		qT.Select("COALESCE(SUM(amount), 0)").Scan(&todayExpense)
+		qY := service.DB.Model(&models.Transaction{}).
+			Where("ledger_id IN ? AND type = 'expense' AND date >= ? AND date <= ?", ledgerIDs, yestStart, yestEnd)
+		qY = applyTagExclusion(qY, "")
+		qY.Select("COALESCE(SUM(amount), 0)").Scan(&yesterdayExpense)
+		todayRemaining := dailyAvg - todayExpense
+
+		var prevPeriodExpense, yoyExpense float64
+		var prevFirst, prevLast time.Time
+		switch period {
+		case "month":
+			prevFirst = firstOfMonth.AddDate(0, -1, 0)
+			prevLast = firstOfMonth.Add(-time.Second)
+			qP := service.DB.Model(&models.Transaction{}).
+				Where("ledger_id IN ? AND type = 'expense' AND date >= ? AND date <= ?", ledgerIDs, prevFirst, prevLast)
+			qP = applyTagExclusion(qP, "")
+			qP.Select("COALESCE(SUM(amount), 0)").Scan(&prevPeriodExpense)
+			yoyFirst := time.Date(targetYear-1, targetMonth, 1, 0, 0, 0, 0, loc)
+			yoyLast := yoyFirst.AddDate(0, 1, 0).Add(-time.Second)
+			qYoY := service.DB.Model(&models.Transaction{}).
+				Where("ledger_id IN ? AND type = 'expense' AND date >= ? AND date <= ?", ledgerIDs, yoyFirst, yoyLast)
+			qYoY = applyTagExclusion(qYoY, "")
+			qYoY.Select("COALESCE(SUM(amount), 0)").Scan(&yoyExpense)
+		case "year":
+			prevFirst = firstOfYear.AddDate(-1, 0, 0)
+			prevLast = firstOfYear.Add(-time.Second)
+			qP := service.DB.Model(&models.Transaction{}).
+				Where("ledger_id IN ? AND type = 'expense' AND date >= ? AND date <= ?", ledgerIDs, prevFirst, prevLast)
+			qP = applyTagExclusion(qP, "")
+			qP.Select("COALESCE(SUM(amount), 0)").Scan(&prevPeriodExpense)
+		}
+
+		// daily / monthly series
+		type rawDailyStat struct {
+			Day     string  `gorm:"column:day"`
+			Expense float64 `gorm:"column:expense"`
+			Income  float64 `gorm:"column:income"`
+		}
+		var rawSeries []rawDailyStat
+		dailySeries := []DailyStat{}
+		switch period {
+		case "month":
+			qs := service.DB.Model(&models.Transaction{}).
+				Select("TO_CHAR(date, 'YYYY-MM-DD') as day, SUM(CASE WHEN type='expense' THEN amount ELSE 0 END) as expense, SUM(CASE WHEN type='income' THEN amount ELSE 0 END) as income").
+				Where("ledger_id IN ? AND date >= ? AND date <= ?", ledgerIDs, firstOfMonth, lastOfMonth)
+			qs = applyTagExclusion(qs, "")
+			qs.Group("day").Order("day ASC").Scan(&rawSeries)
+		case "year":
+			qs := service.DB.Model(&models.Transaction{}).
+				Select("TO_CHAR(date, 'YYYY-MM') as day, SUM(CASE WHEN type='expense' THEN amount ELSE 0 END) as expense, SUM(CASE WHEN type='income' THEN amount ELSE 0 END) as income").
+				Where("ledger_id IN ? AND date >= ? AND date <= ?", ledgerIDs, firstOfYear, lastOfYear)
+			qs = applyTagExclusion(qs, "")
+			qs.Group("day").Order("day ASC").Scan(&rawSeries)
+		}
+		for _, r := range rawSeries {
+			dailySeries = append(dailySeries, DailyStat{Date: r.Day, Expense: r.Expense, Income: r.Income})
+		}
+
+		// top movers — category level, month period only
+		topMoversUp := []TopMover{}
+		topMoversDown := []TopMover{}
+		if period == "month" {
+			if prevFirst.IsZero() {
+				prevFirst = firstOfMonth.AddDate(0, -1, 0)
+				prevLast = firstOfMonth.Add(-time.Second)
+			}
+			type prevCatRow struct {
+				CategoryID uuid.UUID `gorm:"column:category_id"`
+				Value      float64   `gorm:"column:value"`
+			}
+			var prevCatRows []prevCatRow
+			qp := service.DB.Model(&models.Transaction{}).
+				Select("category_id, SUM(amount) as value").
+				Where("ledger_id IN ? AND type = 'expense' AND date >= ? AND date <= ?", ledgerIDs, prevFirst, prevLast)
+			qp = applyTagExclusion(qp, "")
+			qp.Group("category_id").Scan(&prevCatRows)
+			prevMap := make(map[string]float64, len(prevCatRows))
+			for _, r := range prevCatRows {
+				prevMap[r.CategoryID.String()] = r.Value
+			}
+			type moverEntry struct {
+				m        TopMover
+				deltaPct float64
+			}
+			var movers []moverEntry
+			seen := map[string]bool{}
+			for _, cs := range catStats {
+				seen[cs.CategoryID] = true
+				prev := prevMap[cs.CategoryID]
+				var dp float64
+				if prev > 0 {
+					dp = (cs.Value - prev) / prev * 100
+				} else if cs.Value > 0 {
+					dp = 100
+				}
+				movers = append(movers, moverEntry{m: TopMover{
+					CategoryID: cs.CategoryID, Name: cs.Name, NameZh: cs.NameZh, NameEn: cs.NameEn,
+					Amount: cs.Value, PrevAmount: prev, DeltaPct: dp, Color: cs.Color,
+				}, deltaPct: dp})
+			}
+			for catIDStr, prev := range prevMap {
+				if !seen[catIDStr] {
+					movers = append(movers, moverEntry{m: TopMover{
+						CategoryID: catIDStr, Amount: 0, PrevAmount: prev, DeltaPct: -100,
+					}, deltaPct: -100})
+				}
+			}
+			sort.Slice(movers, func(i, j int) bool { return movers[i].deltaPct > movers[j].deltaPct })
+			for _, me := range movers {
+				if me.deltaPct > 0 && len(topMoversUp) < 3 {
+					topMoversUp = append(topMoversUp, me.m)
+				}
+			}
+			sort.Slice(movers, func(i, j int) bool { return movers[i].deltaPct < movers[j].deltaPct })
+			for _, me := range movers {
+				if me.deltaPct < 0 && len(topMoversDown) < 3 {
+					topMoversDown = append(topMoversDown, me.m)
+				}
+			}
+		}
+		comparePayload = gin.H{
+			"today_expense":       todayExpense,
+			"yesterday_expense":   yesterdayExpense,
+			"today_remaining":     todayRemaining,
+			"prev_period_expense": prevPeriodExpense,
+			"yoy_expense":         yoyExpense,
+			"daily_series":        dailySeries,
+			"top_movers_up":       topMoversUp,
+			"top_movers_down":     topMoversDown,
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"total_budget":               totalBudget,
 		"total_expense":              totalExpense,
@@ -1348,6 +1509,7 @@ func GetDashboardSummary(c *gin.Context) {
 		"bypass_tag_filter":          bypassTags,
 		"includes_linked_personal":   includesLinkedPersonal,
 		"linked_personal_in_cluster": linkedPersonalInCluster,
+		"compare":                    comparePayload,
 	})
 }
 

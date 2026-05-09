@@ -48,6 +48,9 @@ export interface PushSubscription {
   timezone: string;
   include_budget_remaining: boolean;
   include_today_expense: boolean;
+  include_comparison: boolean;
+  include_top_categories: boolean;
+  include_anomaly: boolean;
   custom_prefix: string;
 }
 
@@ -81,6 +84,9 @@ function defaultDraft(ledgers: Ledger[], current: Ledger | null): PushSubscripti
     timezone: 'Asia/Shanghai',
     include_budget_remaining: true,
     include_today_expense: true,
+    include_comparison: true,
+    include_top_categories: true,
+    include_anomaly: true,
     custom_prefix: '',
   };
 }
@@ -226,6 +232,9 @@ const BotIntegrationModal: React.FC<Props> = ({ open, onClose }) => {
         timezone: draft.timezone.trim() || 'Asia/Shanghai',
         include_budget_remaining: draft.include_budget_remaining,
         include_today_expense: draft.include_today_expense,
+        include_comparison: draft.include_comparison,
+        include_top_categories: draft.include_top_categories,
+        include_anomaly: draft.include_anomaly,
         custom_prefix: draft.custom_prefix.trim(),
       };
       if (!draft.id) {
@@ -678,6 +687,33 @@ const BotIntegrationModal: React.FC<Props> = ({ open, onClose }) => {
                       onChange={(e) => setDraftField('include_today_expense', e.target.checked)}
                     />
                     <span>{t('pushIncludeToday')}</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="rounded border-[var(--color-border)]"
+                      checked={draft.include_comparison}
+                      onChange={(e) => setDraftField('include_comparison', e.target.checked)}
+                    />
+                    <span>{t('pushIncludeComparison')}</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="rounded border-[var(--color-border)]"
+                      checked={draft.include_top_categories}
+                      onChange={(e) => setDraftField('include_top_categories', e.target.checked)}
+                    />
+                    <span>{t('pushIncludeTopCategories')}</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="rounded border-[var(--color-border)]"
+                      checked={draft.include_anomaly}
+                      onChange={(e) => setDraftField('include_anomaly', e.target.checked)}
+                    />
+                    <span>{t('pushIncludeAnomaly')}</span>
                   </label>
 
                   <Input
